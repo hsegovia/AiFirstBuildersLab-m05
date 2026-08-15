@@ -17,6 +17,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{62A0CFAE
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BingoCart.Infrastructure.Tests", "tests\BingoCart.Infrastructure.Tests\BingoCart.Infrastructure.Tests.csproj", "{AAE0DB1B-FEAF-4331-A947-8DE43899F470}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BingoCart.Domain.Tests", "tests\BingoCart.Domain.Tests\BingoCart.Domain.Tests.csproj", "{3C6DEF6E-C829-4026-9228-86149373C97E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -46,6 +48,10 @@ Global
 		{AAE0DB1B-FEAF-4331-A947-8DE43899F470}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AAE0DB1B-FEAF-4331-A947-8DE43899F470}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AAE0DB1B-FEAF-4331-A947-8DE43899F470}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3C6DEF6E-C829-4026-9228-86149373C97E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3C6DEF6E-C829-4026-9228-86149373C97E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3C6DEF6E-C829-4026-9228-86149373C97E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3C6DEF6E-C829-4026-9228-86149373C97E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{03447582-C654-44DA-A910-3A998ED1F9B1} = {26B37E9A-3EE8-420B-A532-884A2DD1B3B8}
@@ -53,5 +59,6 @@ Global
 		{8011D6A3-7E3C-48C5-B6ED-976A95688393} = {26B37E9A-3EE8-420B-A532-884A2DD1B3B8}
 		{B359ABBA-7A59-4BA3-B711-C6C4A489107B} = {26B37E9A-3EE8-420B-A532-884A2DD1B3B8}
 		{AAE0DB1B-FEAF-4331-A947-8DE43899F470} = {62A0CFAE-2904-4BE4-A02A-BD0247387D46}
+		{3C6DEF6E-C829-4026-9228-86149373C97E} = {62A0CFAE-2904-4BE4-A02A-BD0247387D46}
 	EndGlobalSection
 EndGlobal
