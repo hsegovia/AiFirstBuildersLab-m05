@@ -1,3 +1,4 @@
+using BingoCart.Application.Organizadores;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
@@ -14,7 +15,11 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services
     .AddIdentity<ApplicationUser, IdentityRole<Guid>>()
-    .AddEntityFrameworkStores<AppDbContext>();
+    .AddEntityFrameworkStores<AppDbContext>()
+    .ConfigurarPoliticaDePassword();
+
+builder.Services.AddScoped<IOrganizadorService, OrganizadorService>();
+builder.Services.AddScoped<IIdentityGateway, IdentityGateway>();
 
 builder.Services.AddControllers();
 

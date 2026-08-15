@@ -5,6 +5,9 @@
     <ProjectReference Include="..\BingoCart.Application\BingoCart.Application.csproj" />
   </ItemGroup>
 
+  <!-- La ProjectReference a BingoCart.Application ya existía (Block 1); IdentityGateway
+       (este bloque) es quien la usa por primera vez, para implementar IIdentityGateway. -->
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.11" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
