@@ -9,9 +9,14 @@ namespace BingoCart.Application.Organizadores.Dtos;
 /// acá: su validación es responsabilidad de Domain (`Organizador.Crear`) e Identity
 /// (`IIdentityGateway`), no de esta capa de transporte.
 /// </summary>
+// Los atributos van sin el target `property:` a propósito: en un record posicional, ASP.NET Core
+// exige que la metadata de validación quede en el parámetro del constructor primario para poder
+// bindear [FromBody] correctamente. `[property: ...]` la deja solo en la propiedad generada, y el
+// model binder aborta con InvalidOperationException en tiempo de ejecución antes de correr el
+// controller (no se detecta en tests unitarios que instancian el record directamente).
 public sealed record RegistrarOrganizadorRequest(
-    [property: Required, StringLength(200, MinimumLength = 1)] string NombreOrganizacion,
+    [Required, StringLength(200, MinimumLength = 1)] string NombreOrganizacion,
     string Cuit,
-    [property: Required, EmailAddress] string Mail,
+    [Required, EmailAddress] string Mail,
     string Telefono,
     string Password);
