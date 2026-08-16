@@ -25,7 +25,7 @@ public sealed class RegistroOrganizadorE2ETests : IAsyncLifetime
     private const string CuitValidoA = "20304050609";
     private const string CuitValidoB = "20123456786";
 
-    // Misma credencial de desarrollo local que src/BingoCart.Api/appsettings.Development.json
+    // Misma credencial de desarrollo local que backend/BingoCart.Api/appsettings.Development.json
     // (Block 1) — únicamente para conectarse al mismo contenedor `db` dockerizado y limpiar los
     // datos que este test crea (Regla #0). Sobreescribible con la misma variable de entorno que
     // usa la Api (`ConnectionStrings__Default`) para no duplicar el secreto en un tercer lugar.

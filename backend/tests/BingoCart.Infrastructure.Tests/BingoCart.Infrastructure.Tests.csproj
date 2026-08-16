@@ -27,7 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\BingoCart.Infrastructure\BingoCart.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\BingoCart.Infrastructure\BingoCart.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
