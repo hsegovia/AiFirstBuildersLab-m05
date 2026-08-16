@@ -2,13 +2,20 @@ import { TestBed } from '@angular/core/testing';
 import { RouterModule } from '@angular/router';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatCardModule } from '@angular/material/card';
+import { MatButtonModule } from '@angular/material/button';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { AppComponent } from './app.component';
 
 describe('AppComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [RouterModule.forRoot([]), MatToolbarModule, MatCardModule, NoopAnimationsModule],
+      imports: [
+        RouterModule.forRoot([]),
+        MatToolbarModule,
+        MatCardModule,
+        MatButtonModule,
+        NoopAnimationsModule,
+      ],
       declarations: [AppComponent],
     }).compileComponents();
   });
@@ -37,5 +44,14 @@ describe('AppComponent', () => {
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('main')?.classList.contains('bg-slate-50')).toBeTrue();
+  });
+
+  it('muestra un link hacia el formulario de registro (FIX-002)', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const link = compiled.querySelector('[data-testid="link-registro"]');
+    expect(link).toBeTruthy();
+    expect(link?.getAttribute('routerLink')).toBe('/auth/registro');
   });
 });
