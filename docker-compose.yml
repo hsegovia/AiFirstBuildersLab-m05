@@ -1,0 +1,71 @@
+services:
+  # SQL Server 2022. Cifrado en tránsito hacia este servicio: Encrypt=True en la connection
+  # string de la Api (appsettings.Development.json / ConnectionStrings__Default, Block 1).
+  # Cifrado at-rest (TDE): se habilita automáticamente al arrancar el contenedor `api` —
+  # AppDbContextTdeExtensions.EnsureTdeEnabledAsync corre en Program.cs después de aplicar las
+  # migraciones (MigrateAsync) y deja la base `BingoCart` con ENCRYPTION ON, verificable con
+  # `SELECT is_encrypted FROM sys.databases WHERE name = 'BingoCart'`. Ambos pasos son
+  # idempotentes: un `docker-compose down -v && docker-compose up --build` desde un clone limpio
+  # vuelve a crear el schema y a habilitar TDE sin intervención manual
+  # (docs/daw/security/threat-FEAT-001a.md, F-TM-07 — corrective loop VERIFY→CODE).
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: bingocart-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+      # Credencial de desarrollo local únicamente — nunca se usa fuera de este docker-compose.
+      # Sobreescribible con la variable de entorno MSSQL_SA_PASSWORD del host si se necesita otra.
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-BingoCart_Dev2026!}"
+    ports:
+      # Riesgo aceptado #2 (threat-FEAT-001a.md): puerto expuesto al host solo para desarrollo
+      # local. No debe exponerse en ningún entorno compartido o productivo.
+      - "14330:1433"
+    volumes:
+      - bingocart-db-data:/var/opt/mssql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  api:
+    build:
+      context: .
+      dockerfile: src/BingoCart.Api/Dockerfile
+    container_name: bingocart-api
+    ports:
+      - "8080:8080"
+    environment:
+      # Development (no Production) a propósito: Program.cs solo registra Swagger/SwaggerUI
+      # cuando IsDevelopment() es true, y el criterio de aceptación de este bloque exige que
+      # /swagger/index.html responda 200 dentro del contenedor.
+      ASPNETCORE_ENVIRONMENT: "Development"
+      # Dentro de la red de docker-compose el host es el nombre del servicio (`db`), no
+      # localhost, y el puerto interno de SQL Server es 1433 (14330 es solo el mapeo al host,
+      # Block 1). Misma credencial ya aceptada para el servicio `db` — sin secretos nuevos.
+      ConnectionStrings__Default: "Server=db,1433;Database=BingoCart;User Id=sa;Password=${MSSQL_SA_PASSWORD:-BingoCart_Dev2026!};TrustServerCertificate=True;Encrypt=True;"
+      # Password de la master key de TDE (corrective loop VERIFY→CODE de FEAT-001a) — deliberadamente
+      # distinto de MSSQL_SA_PASSWORD: nunca la misma clave para dos secretos distintos.
+      Tde__MasterKeyPassword: "${TDE_MASTER_KEY_PASSWORD:-BingoCart_TdeKey_2026#}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bingocart-web
+    ports:
+      - "8000:80"
+    depends_on:
+      - api
+
+volumes:
+  bingocart-db-data:

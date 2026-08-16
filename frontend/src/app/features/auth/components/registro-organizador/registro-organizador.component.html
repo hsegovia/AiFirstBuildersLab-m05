@@ -1,0 +1,127 @@
+<div class="registro-organizador">
+  <mat-card class="registro-organizador__card">
+    <mat-card-header>
+      <mat-card-title>Registro de organizador</mat-card-title>
+    </mat-card-header>
+
+    <mat-card-content>
+      <div
+        *ngIf="registroExitoso"
+        class="registro-organizador__mensaje-exito"
+        data-testid="mensaje-exito"
+      >
+        Cuenta creada correctamente. Ya podés iniciar sesión.
+      </div>
+
+      <form
+        *ngIf="!registroExitoso"
+        [formGroup]="form"
+        (ngSubmit)="onSubmit()"
+        class="registro-organizador__form"
+      >
+        <div
+          *ngIf="errorGeneral"
+          class="registro-organizador__error-general"
+          data-testid="error-general"
+        >
+          {{ errorGeneral }}
+        </div>
+
+        <mat-form-field appearance="outline" class="registro-organizador__campo">
+          <mat-label>Nombre de la organización</mat-label>
+          <input matInput formControlName="nombreOrganizacion" data-testid="input-nombre" />
+          <mat-error *ngIf="form.controls['nombreOrganizacion'].hasError('required')">
+            El nombre de la organización es obligatorio.
+          </mat-error>
+          <mat-error *ngIf="form.controls['nombreOrganizacion'].hasError('backend')" data-testid="error-nombre-backend">
+            {{ form.controls['nombreOrganizacion'].getError('backend') }}
+          </mat-error>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="registro-organizador__campo">
+          <mat-label>CUIT</mat-label>
+          <input matInput formControlName="cuit" data-testid="input-cuit" />
+          <mat-error *ngIf="form.controls['cuit'].hasError('required')">
+            El CUIT es obligatorio.
+          </mat-error>
+          <mat-error *ngIf="form.controls['cuit'].hasError('pattern')">
+            El CUIT debe tener 11 dígitos numéricos.
+          </mat-error>
+          <mat-error *ngIf="form.controls['cuit'].hasError('backend')" data-testid="error-cuit-backend">
+            {{ form.controls['cuit'].getError('backend') }}
+          </mat-error>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="registro-organizador__campo">
+          <mat-label>Mail</mat-label>
+          <input matInput type="email" formControlName="mail" data-testid="input-mail" />
+          <mat-error *ngIf="form.controls['mail'].hasError('required')">
+            El mail es obligatorio.
+          </mat-error>
+          <mat-error *ngIf="form.controls['mail'].hasError('email')">
+            El mail no tiene un formato válido.
+          </mat-error>
+          <mat-error *ngIf="form.controls['mail'].hasError('backend')" data-testid="error-mail-backend">
+            {{ form.controls['mail'].getError('backend') }}
+          </mat-error>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="registro-organizador__campo">
+          <mat-label>Teléfono</mat-label>
+          <input matInput formControlName="telefono" data-testid="input-telefono" />
+          <mat-error *ngIf="form.controls['telefono'].hasError('required')">
+            El teléfono es obligatorio.
+          </mat-error>
+          <mat-error
+            *ngIf="
+              form.controls['telefono'].hasError('pattern') ||
+              form.controls['telefono'].hasError('minlength') ||
+              form.controls['telefono'].hasError('maxlength')
+            "
+          >
+            El teléfono debe ser numérico (se permiten '+', espacios y guiones) y tener entre 8 y
+            20 caracteres.
+          </mat-error>
+          <mat-error *ngIf="form.controls['telefono'].hasError('backend')" data-testid="error-telefono-backend">
+            {{ form.controls['telefono'].getError('backend') }}
+          </mat-error>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="registro-organizador__campo">
+          <mat-label>Contraseña</mat-label>
+          <input
+            matInput
+            type="password"
+            formControlName="password"
+            data-testid="input-password"
+          />
+          <mat-error *ngIf="form.controls['password'].hasError('required')">
+            La contraseña es obligatoria.
+          </mat-error>
+          <mat-error
+            *ngIf="
+              form.controls['password'].hasError('minlength') ||
+              form.controls['password'].hasError('pattern')
+            "
+          >
+            La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula, un
+            dígito y un carácter no alfanumérico.
+          </mat-error>
+          <mat-error *ngIf="form.controls['password'].hasError('backend')" data-testid="error-password-backend">
+            {{ form.controls['password'].getError('backend') }}
+          </mat-error>
+        </mat-form-field>
+
+        <button
+          mat-raised-button
+          color="primary"
+          type="submit"
+          [disabled]="enviando"
+          data-testid="boton-submit"
+        >
+          Registrarme
+        </button>
+      </form>
+    </mat-card-content>
+  </mat-card>
+</div>

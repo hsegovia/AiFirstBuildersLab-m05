@@ -1,0 +1,28 @@
+<mat-toolbar color="primary" class="shadow-md">
+  <span class="text-lg font-semibold">{{ title }}</span>
+</mat-toolbar>
+
+<main class="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 p-8">
+  <mat-card class="max-w-md p-6 shadow-lg">
+    <mat-card-header>
+      <mat-card-title>{{ title }}</mat-card-title>
+    </mat-card-header>
+    <mat-card-content>
+      <p class="text-sm text-slate-600">
+        Infraestructura base del frontend lista: Angular Material (MD3) y Tailwind CSS aplicando
+        estilos sobre esta página placeholder.
+      </p>
+      <a
+        mat-raised-button
+        color="primary"
+        class="mt-4"
+        routerLink="/auth/registro"
+        data-testid="link-registro"
+      >
+        Registrar organización
+      </a>
+    </mat-card-content>
+  </mat-card>
+
+  <router-outlet></router-outlet>
+</main>

@@ -63,16 +63,17 @@ files and **propose the text for you to paste here**. You always confirm it.
 Leave it empty and that validation has nothing to compare against, so it stops being worth running.
 
 - **Folder structure:**
-  - FrontEnd: `src/app/features/<feature>/` con subcarpetas `components/`, `services/`, `models/` dentro de cada `NgModule` (ej. `features/cart/`, `features/cards/`).
+  - FrontEnd: `src/app/features/<feature>/` con subcarpetas `components/`, `services/`, 
+  `models/` dentro de cada `NgModule` (ej. `features/cart/`, `features/cards/`).
+  
   - BackEnd: por capas a nivel solución — `Api/` (controllers), `Application/` (servicios, lógica de negocio), `Domain/` (entidades), `Infrastructure/` (EF Core, Redis, MailKit, QuestPDF).
+
 - **Layer separation:** el FrontEnd nunca llama directamente a la API sin pasar por un service Angular dedicado por recurso; el BackEnd nunca expone entidades de EF Core en la API (siempre DTOs) y nunca pone lógica de negocio en controllers ni en la capa de datos.
 - **Error handling:** BackEnd con excepciones tipadas por dominio (ej. `CartNotFoundException`) capturadas por un middleware global que las traduce a respuestas HTTP consistentes — nunca un catch silencioso. FrontEnd con manejo centralizado de errores HTTP vía interceptor, nunca un `.subscribe()` sin `error` handler.
 - **Naming:** archivos Angular en kebab-case (`cart-summary.component.ts`), componentes/clases en PascalCase (`CartSummaryComponent`); en .NET, clases y archivos en PascalCase (`CartService.cs`), variables locales en camelCase.
 - **Dependencies:** no se agregan librerías nuevas (npm o NuGet) sin justificarlas en el spec/PRD — coherente con el principio ya definido de "no features outside the PRD".
 
 ---
-
-## Code conventions
 
 ## Code conventions
 

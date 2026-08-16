@@ -1,0 +1,9 @@
+# Build context del frontend (docker-compose.yml, servicio `web`, context: ./frontend). Evita
+# arrastrar node_modules/dist ya generados localmente al contexto de build.
+node_modules/
+dist/
+coverage/
+.git/
+
+# Hardening preventivo: ningún secreto local debe entrar al build context.
+*.env

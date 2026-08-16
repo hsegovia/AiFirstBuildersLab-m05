@@ -1,0 +1,36 @@
+/* You can add global styles to this file, and also import other style files */
+@use '@angular/material' as mat;
+
+// Angular Material 18.2.14 expone la API M3 vía `mat.define-theme()` +
+// `mat.all-component-themes()` (el mixin `mat.theme()` de una sola llamada llega recién en v19).
+// Paleta estándar de scaffolding (M3), sin identidad de marca definida en el PRD/spec.
+$daw-theme: mat.define-theme((
+  color: (
+    theme-type: light,
+    primary: mat.$azure-palette,
+    tertiary: mat.$violet-palette,
+  ),
+  typography: (
+    brand-family: Roboto,
+  ),
+  density: (
+    scale: 0,
+  ),
+));
+
+html {
+  @include mat.all-component-themes($daw-theme);
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+body {
+  margin: 0;
+  font-family: Roboto, 'Helvetica Neue', sans-serif;
+}

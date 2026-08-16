@@ -1,0 +1,30 @@
+.registro-organizador {
+  display: flex;
+  justify-content: center;
+  padding: 2rem;
+
+  &__card {
+    width: 100%;
+    max-width: 480px;
+  }
+
+  &__form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  &__campo {
+    width: 100%;
+  }
+
+  &__mensaje-exito {
+    color: #2e7d32;
+    font-weight: 500;
+  }
+
+  &__error-general {
+    color: #c62828;
+    font-weight: 500;
+  }
+}

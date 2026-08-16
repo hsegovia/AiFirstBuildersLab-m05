@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="Moq" Version="4.20.72" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+    <!-- Overrides de seguridad (SAST, FEAT-001a): xunit arrastra NETStandard.Library 1.6.1, que
+         resuelve System.Net.Http/System.Text.RegularExpressions 4.3.0 (CVEs High). Nunca se
+         cargan en runtime en net8.0 (son solo ensamblados de referencia), pero se fijan a la
+         versión parcheada para que el árbol de dependencias resuelto no reporte el CVE. -->
+    <PackageReference Include="System.Net.Http" Version="4.3.4" />
+    <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BingoCart.Application\BingoCart.Application.csproj" />
+    <ProjectReference Include="..\..\src\BingoCart.Domain\BingoCart.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

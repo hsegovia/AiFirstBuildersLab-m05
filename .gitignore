@@ -8,3 +8,12 @@
 .daw-sessions/
 .daw-journal.jsonl
 # END DAW
+
+# .NET build artifacts (Block 1, FEAT-001a)
+bin/
+obj/
+*.user
+TestResults/
+
+# Datos persistentes del contenedor SQL Server local (docker-compose.yml, Block 1)
+.env
