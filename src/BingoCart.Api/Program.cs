@@ -61,6 +61,17 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Origin fijo del frontend Angular en desarrollo local (puerto 8000 — mismo valor que usará el
+// contenedor `web` del Block 7). Sin esta política, el navegador bloquea el preflight OPTIONS
+// del formulario de registro antes de que la request llegue al controller.
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("frontend", policy =>
+        policy.WithOrigins("http://localhost:8000")
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
+
 var app = builder.Build();
 
 // Middleware de manejo de excepciones global: primero en el pipeline para poder traducir a HTTP
@@ -73,6 +84,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseCors("frontend");
 
 app.UseRateLimiter();
 
