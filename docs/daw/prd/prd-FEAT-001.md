@@ -10,8 +10,8 @@
 
 | Sub-ticket | Title | PRD | Dependencies | Status |
 |---|---|---|---|---|
-| FEAT-001a | Registro de organizador | prd-FEAT-001a.md | none | active |
-| FEAT-001b | Login de organizador | prd-FEAT-001b.md | depends on a | pending |
+| FEAT-001a | Registro de organizador | prd-FEAT-001a.md | none | done — PR #1 (draft), se mergea cuando se apruebe |
+| FEAT-001b | Login de organizador | prd-FEAT-001b.md | depends on a | active |
 
 ## Suggested implementation order
 a → b
