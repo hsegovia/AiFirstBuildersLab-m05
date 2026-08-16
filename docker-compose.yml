@@ -36,8 +36,8 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: src/BingoCart.Api/Dockerfile
+      context: ./backend
+      dockerfile: BingoCart.Api/Dockerfile
     container_name: bingocart-api
     ports:
       - "8080:8080"
