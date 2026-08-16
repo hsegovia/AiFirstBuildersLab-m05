@@ -32,5 +32,35 @@ services:
       retries: 10
       start_period: 20s
 
+  api:
+    build:
+      context: .
+      dockerfile: src/BingoCart.Api/Dockerfile
+    container_name: bingocart-api
+    ports:
+      - "8080:8080"
+    environment:
+      # Development (no Production) a propósito: Program.cs solo registra Swagger/SwaggerUI
+      # cuando IsDevelopment() es true, y el criterio de aceptación de este bloque exige que
+      # /swagger/index.html responda 200 dentro del contenedor.
+      ASPNETCORE_ENVIRONMENT: "Development"
+      # Dentro de la red de docker-compose el host es el nombre del servicio (`db`), no
+      # localhost, y el puerto interno de SQL Server es 1433 (14330 es solo el mapeo al host,
+      # Block 1). Misma credencial ya aceptada para el servicio `db` — sin secretos nuevos.
+      ConnectionStrings__Default: "Server=db,1433;Database=BingoCart;User Id=sa;Password=${MSSQL_SA_PASSWORD:-BingoCart_Dev2026!};TrustServerCertificate=True;Encrypt=True;"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bingocart-web
+    ports:
+      - "8000:80"
+    depends_on:
+      - api
+
 volumes:
   bingocart-db-data:

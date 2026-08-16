@@ -1,0 +1,16 @@
+# Build context del backend (docker-compose.yml, servicio `api`, context: .). Evita arrastrar
+# artefactos ya compilados localmente, el historial de git, el frontend (build context propio) y
+# la documentación al contexto de build del backend.
+**/bin/
+**/obj/
+.git/
+frontend/
+docs/
+.daw/
+.daw-state.json
+.daw-paused/
+
+# Hardening preventivo: ningún secreto local debe entrar al build context, aunque hoy no exista
+# ninguno de estos archivos en el repo.
+*.env
+appsettings.*.local.json
