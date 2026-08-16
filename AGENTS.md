@@ -74,8 +74,6 @@ Leave it empty and that validation has nothing to compare against, so it stops b
 
 ## Code conventions
 
-## Code conventions
-
 - **TypeScript (Angular):** sin `any`. Si es inevitable (ej. tipado de una librería de terceros sin `.d.ts`), va con comentario explicando por qué. Preferir `unknown` + type guard antes que `any`.
 - **C# (.NET):** sin `dynamic` ni `object` genérico donde haya un tipo conocido; usar tipos explícitos o genéricos fuertemente tipados. Nullable reference types habilitado (`<Nullable>enable</Nullable>`) — no silenciar warnings de nulabilidad con `!` sin justificar.
 - **Funciones puras / efectos en los bordes:** en Angular, la lógica de transformación de datos (pipes, mappers) debe ser pura; las llamadas HTTP y el estado mutable viven solo en services. En .NET, los métodos de dominio (`Domain/`) no deben tener side effects (I/O, DB, red); esos efectos quedan en `Infrastructure/` y `Application/`.
