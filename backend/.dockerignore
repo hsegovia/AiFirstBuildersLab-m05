@@ -1,0 +1,23 @@
+# Build context del backend (docker-compose.yml, servicio `api`, context: ./backend). Evita
+# arrastrar artefactos ya compilados localmente y el historial de git al contexto de build.
+#
+# NOTA: a diferencia de frontend/.dockerignore (`node_modules/`, sin `**/`), acá se usa el prefijo
+# `**/` porque la solución .NET tiene bin/obj anidados en cada proyecto (BingoCart.Api/bin,
+# BingoCart.Domain/bin, backend/tests/*/bin, etc.), no solo en la raíz del contexto. Un patrón
+# `bin/`/`obj/` sin `**/` solo excluye el directorio de nivel superior y deja pasar los anidados:
+# verificado empíricamente durante Block 2 — con patrones planos, el build fallaba (NETSDK1064,
+# "Package ... was not found") porque el `obj/` local (con project.assets.json generado fuera del
+# contenedor) se copiaba encima del `obj/` recién restaurado dentro del build stage. `**/bin/` y
+# `**/obj/` son los mismos patrones que ya usaba el `.dockerignore` de raíz (ahora eliminado).
+**/bin/
+**/obj/
+.git/
+
+# Hardening preventivo: ningún secreto local debe entrar al build context.
+*.env
+
+# BingoCart.Api es un proyecto .NET donde un appsettings.{Environment}.local.json es el mecanismo
+# estándar de override local con secretos reales (connection string, JWT signing key). Sin este
+# patrón, ese archivo quedaría embebido en una capa de la imagen Docker, persistente aunque se
+# borre en una capa posterior (docs/daw/security/threat-FEAT-002.md, TM-01, riesgo HIGH).
+appsettings.*.local.json
