@@ -116,3 +116,25 @@ no triviales, tras triage exhaustivo con evidencia:
 aplicada o supresión formal con los 7 campos + ADR de respaldo.**
 
 **Result: PASSED** — `gates.sast` = `true`.
+
+## Re-cierre (corrective loop VERIFY→CODE, 2026-08-16)
+
+VERIFY encontró 2 gaps reales (TDE prometido pero no implementado; branch coverage del frontend
+por debajo del mínimo) que requirieron volver a CODE. Cambios relevantes para este SAST:
+
+- `AppDbContextTdeExtensions.cs` (nuevo): ejecuta SQL administrativo (`CREATE MASTER KEY`,
+  `CREATE CERTIFICATE`, `CREATE DATABASE ENCRYPTION KEY`, `ALTER DATABASE ... SET ENCRYPTION ON`)
+  vía `ExecuteSqlRawAsync`/ADO.NET directo. Revisado línea por línea: el password de la master key
+  y el nombre de la base vienen exclusivamente de configuración de servidor (`appsettings`/env
+  var), nunca de una request HTTP — no hay ruta de input de usuario hacia este SQL. **F-SAST-02: no
+  aplica (no es input de usuario), sin hallazgo.**
+- `Tde:MasterKeyPassword` (nuevo, `appsettings.json`/`appsettings.Development.json`/
+  `docker-compose.yml`): mismo patrón ya aceptado que `ConnectionStrings:Default` y
+  `MSSQL_SA_PASSWORD` — placeholder vacío en el archivo versionado sin sufijo, valor de desarrollo
+  local en `.Development.json`, override por variable de entorno en compose. **F-SAST-01: sin
+  hallazgo nuevo**, mismo criterio ya aplicado.
+- Dependencias: sin cambios (`dotnet list --vulnerable` → 0 en las 9 unidades; no se agregó ningún
+  paquete NuGet ni npm nuevo en este re-cierre — solo tests nuevos con los paquetes ya
+  referenciados).
+
+**Result: PASSED** — `gates.sast` se re-confirma `true` sobre el estado final del código.

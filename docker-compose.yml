@@ -1,11 +1,13 @@
 services:
   # SQL Server 2022. Cifrado en tránsito hacia este servicio: Encrypt=True en la connection
   # string de la Api (appsettings.Development.json / ConnectionStrings__Default, Block 1).
-  # Cifrado at-rest (TDE) es responsabilidad operativa de la instancia: se habilita a nivel de
-  # base de datos (CREATE DATABASE ENCRYPTION KEY / ALTER DATABASE ... SET ENCRYPTION ON) cuando
-  # esta imagen se promueva a un entorno que persista datos reales — no aplica en este contenedor
-  # de desarrollo local, que arranca con una base vacía en cada `docker-compose down -v`
-  # (docs/daw/security/threat-FEAT-001a.md, F-TM-07).
+  # Cifrado at-rest (TDE): se habilita automáticamente al arrancar el contenedor `api` —
+  # AppDbContextTdeExtensions.EnsureTdeEnabledAsync corre en Program.cs después de aplicar las
+  # migraciones (MigrateAsync) y deja la base `BingoCart` con ENCRYPTION ON, verificable con
+  # `SELECT is_encrypted FROM sys.databases WHERE name = 'BingoCart'`. Ambos pasos son
+  # idempotentes: un `docker-compose down -v && docker-compose up --build` desde un clone limpio
+  # vuelve a crear el schema y a habilitar TDE sin intervención manual
+  # (docs/daw/security/threat-FEAT-001a.md, F-TM-07 — corrective loop VERIFY→CODE).
   db:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: bingocart-db
@@ -48,6 +50,9 @@ services:
       # localhost, y el puerto interno de SQL Server es 1433 (14330 es solo el mapeo al host,
       # Block 1). Misma credencial ya aceptada para el servicio `db` — sin secretos nuevos.
       ConnectionStrings__Default: "Server=db,1433;Database=BingoCart;User Id=sa;Password=${MSSQL_SA_PASSWORD:-BingoCart_Dev2026!};TrustServerCertificate=True;Encrypt=True;"
+      # Password de la master key de TDE (corrective loop VERIFY→CODE de FEAT-001a) — deliberadamente
+      # distinto de MSSQL_SA_PASSWORD: nunca la misma clave para dos secretos distintos.
+      Tde__MasterKeyPassword: "${TDE_MASTER_KEY_PASSWORD:-BingoCart_TdeKey_2026#}"
     depends_on:
       db:
         condition: service_healthy

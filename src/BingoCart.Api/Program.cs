@@ -93,6 +93,26 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// Corrective loop VERIFY→CODE de FEAT-001a: hasta acá nada aplicaba las migraciones de EF Core al
+// arrancar, así que un `docker-compose up --build` desde un clone limpio no creaba el schema de
+// `AspNetUsers` (solo funcionaba porque la migración se había corrido a mano en sesiones previas
+// de este mismo entorno). `MigrateAsync` es idempotente: no reaplica migraciones ya aplicadas.
+// TDE (F-TM-07, threat model riesgo #4) requiere que la base ya exista, por eso se habilita
+// DESPUÉS de migrar, no antes. `EnsureTdeEnabledAsync` es igual de idempotente (ver comentario en
+// AppDbContextTdeExtensions.cs) y se salta si no hay password configurado, para no romper el
+// arranque en un entorno que todavía no haya definido `Tde:MasterKeyPassword`.
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await dbContext.Database.MigrateAsync();
+
+    var tdeMasterKeyPassword = builder.Configuration["Tde:MasterKeyPassword"];
+    if (!string.IsNullOrWhiteSpace(tdeMasterKeyPassword))
+    {
+        await dbContext.EnsureTdeEnabledAsync(tdeMasterKeyPassword);
+    }
+}
+
 app.Run();
 
 // Necesario para que WebApplicationFactory<Program> (tests de integración de Block 4) pueda

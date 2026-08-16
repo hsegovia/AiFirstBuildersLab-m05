@@ -60,6 +60,20 @@ describe('RegistroOrganizadorComponent', () => {
     expect(component.form.valid).toBeTrue();
   });
 
+  it('onSubmit con formulario inválido no llama al service y marca todos los controles como touched', () => {
+    component.form.setValue({
+      ...datosValidos,
+      nombreOrganizacion: '',
+    });
+
+    component.onSubmit();
+
+    expect(organizadorServiceSpy.registrar).not.toHaveBeenCalled();
+    for (const nombreControl of Object.keys(component.form.controls)) {
+      expect(component.form.get(nombreControl)?.touched).toBeTrue();
+    }
+  });
+
   it('el validador de CUIT rechaza formato inválido en el cliente', () => {
     const cuitControl = component.form.controls['cuit'];
 
@@ -112,4 +126,19 @@ describe('RegistroOrganizadorComponent', () => {
       expect(component.registroExitoso).toBeFalse();
     });
   }
+
+  it('ante un error sin código de negocio (5xx/red) no toca el estado de error por campo', () => {
+    const httpError = new HttpErrorResponse({ status: 500, error: null });
+    organizadorServiceSpy.registrar.and.returnValue(throwError(() => httpError));
+
+    component.form.setValue(datosValidos);
+    component.onSubmit();
+
+    expect(component.errorGeneral).toBeNull();
+    for (const nombreControl of Object.keys(component.form.controls)) {
+      expect(component.form.controls[nombreControl].hasError('backend')).toBeFalse();
+    }
+    expect(component.registroExitoso).toBeFalse();
+    expect(component.enviando).toBeFalse();
+  });
 });

@@ -92,7 +92,7 @@
 | 1 | Enumeración de cuentas vía 409 `MailYaRegistrado` | Information Disclosure | Medium | Low | **Riesgo aceptado** (ver abajo) |
 | 2 | Puerto de `db` expuesto al host en `docker-compose` | Tampering/Info Disclosure | Low (solo local) | Medium (si se reutiliza el compose fuera de dev) | **Riesgo aceptado** (ver abajo) + nota operativa en Bloque 7 |
 | 3 | Spam/DoS por falta de rate limiting en endpoint público | Denial of Service | Medium | Medium | **Mitigado** — rate limiting 5 req/min/IP (Bloque 4) |
-| 4 | PII y hash de password sin cifrado explícito en tránsito/reposo hacia SQL Server | Information Disclosure | Low | High (dato personal, Ley 25.326) | **Mitigado** — `Encrypt=True` + TDE (Bloque 1) |
+| 4 | PII y hash de password sin cifrado explícito en tránsito/reposo hacia SQL Server | Information Disclosure | Low | High (dato personal, Ley 25.326) | **Mitigado** — `Encrypt=True` + TDE (Bloque 1). Nota (2026-08-16, corrective loop VERIFY→CODE): TDE estaba declarado acá pero nunca implementado — solo un comentario en `docker-compose.yml`. Se verificó real (no solo declarado): `AppDbContextTdeExtensions.EnsureTdeEnabledAsync` corre en cada arranque de la Api y se confirmó `is_encrypted = 1` sobre la base `BingoCart` con una consulta directa a `sys.databases`, además del test de integración `AppDbContextTdeExtensionsTests`. |
 | 5 | Sin log de auditoría del registro exitoso | Repudiation | Low | Low | **Mitigado** — log INFO sin PII (Bloque 4) |
 | 6 | Connection string hardcodeada | Spoofing | Low | High (si ocurriera) | **Mitigado** — solo por variable de entorno (Bloque 1) |
 
