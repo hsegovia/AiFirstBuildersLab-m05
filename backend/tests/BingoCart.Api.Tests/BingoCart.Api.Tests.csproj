@@ -32,6 +32,10 @@
     <ProjectReference Include="..\..\BingoCart.Api\BingoCart.Api.csproj" />
     <ProjectReference Include="..\..\BingoCart.Application\BingoCart.Application.csproj" />
     <ProjectReference Include="..\..\BingoCart.Infrastructure\BingoCart.Infrastructure.csproj" />
+    <!-- Reutiliza TestTimeProvider (spec FEAT-001b, Block 1) en vez de duplicar un doble de test
+         equivalente acá — el test de expiración de Block 3 necesita el mismo mecanismo para
+         construir un JwtTokenService con el reloj ya 61 minutos en el pasado. -->
+    <ProjectReference Include="..\BingoCart.Infrastructure.Tests\BingoCart.Infrastructure.Tests.csproj" />
   </ItemGroup>
 
 </Project>

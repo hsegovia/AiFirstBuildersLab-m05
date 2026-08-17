@@ -53,6 +53,10 @@ services:
       # Password de la master key de TDE (corrective loop VERIFY→CODE de FEAT-001a) — deliberadamente
       # distinto de MSSQL_SA_PASSWORD: nunca la misma clave para dos secretos distintos.
       Tde__MasterKeyPassword: "${TDE_MASTER_KEY_PASSWORD:-BingoCart_TdeKey_2026#}"
+      # Clave de firma HMAC-SHA256 de JWT (spec FEAT-001b, Block 1) — mismo default de desarrollo
+      # local que appsettings.Development.json, nunca un secreto real. Sobreescribible con la
+      # variable de entorno JWT_SIGNING_KEY del host si se necesita otra.
+      Jwt__SigningKey: "${JWT_SIGNING_KEY:--uBhxtdhOe3nsTJGPrTVZP1EL16zOGI0VYCVTbY8Zr57}"
     depends_on:
       db:
         condition: service_healthy
