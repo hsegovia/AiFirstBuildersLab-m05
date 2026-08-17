@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using BingoCart.Domain.Auth.Exceptions;
 using BingoCart.Domain.Common;
 using BingoCart.Domain.Organizadores.Exceptions;
 
@@ -46,6 +47,10 @@ public sealed class ExceptionHandlingMiddleware
         catch (MailYaRegistradoException ex)
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "MailYaRegistrado");
+        }
+        catch (CredencialesInvalidasException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Unauthorized, "CredencialesInvalidas");
         }
         catch (Exception ex)
         {

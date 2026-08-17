@@ -12,10 +12,12 @@ namespace BingoCart.Infrastructure.Identity;
 public sealed class IdentityGateway : IIdentityGateway
 {
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly SignInManager<ApplicationUser> _signInManager;
 
-    public IdentityGateway(UserManager<ApplicationUser> userManager)
+    public IdentityGateway(UserManager<ApplicationUser> userManager, SignInManager<ApplicationUser> signInManager)
     {
         _userManager = userManager;
+        _signInManager = signInManager;
     }
 
     public async Task<bool> ExisteMailAsync(string mail)
@@ -45,5 +47,31 @@ public sealed class IdentityGateway : IIdentityGateway
 
         var errores = resultado.Errors.Select(error => error.Description).ToList();
         return new IdentityGatewayResult(resultado.Succeeded, errores);
+    }
+
+    public async Task<ResultadoAutenticacion> AutenticarAsync(string mail, string password)
+    {
+        var usuario = await _userManager.FindByEmailAsync(mail);
+        if (usuario is null)
+        {
+            // Mail inexistente: no hay cuenta cuyo contador de intentos fallidos incrementar.
+            return new ResultadoAutenticacion(EstadoAutenticacion.CredencialesInvalidas, null);
+        }
+
+        var resultado = await _signInManager.CheckPasswordSignInAsync(usuario, password, lockoutOnFailure: true);
+
+        if (resultado.Succeeded)
+        {
+            return new ResultadoAutenticacion(EstadoAutenticacion.Exitoso, usuario.Id);
+        }
+
+        if (resultado.IsLockedOut)
+        {
+            return new ResultadoAutenticacion(EstadoAutenticacion.CuentaBloqueada, null);
+        }
+
+        // Cualquier otro resultado (password incorrecta, IsNotAllowed, etc.) se trata como
+        // credenciales inválidas, sin distinguir causa (AC-02).
+        return new ResultadoAutenticacion(EstadoAutenticacion.CredencialesInvalidas, null);
     }
 }

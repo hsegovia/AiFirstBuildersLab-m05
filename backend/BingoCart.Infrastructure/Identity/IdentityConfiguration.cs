@@ -22,6 +22,14 @@ public static class IdentityConfiguration
             options.Password.RequireLowercase = true;
             options.Password.RequireNonAlphanumeric = true;
             options.Password.RequiredLength = 8;
+
+            // Lockout de cuenta (spec FEAT-001b, Block 1): 5 intentos fallidos consecutivos
+            // bloquean la cuenta por 5 minutos, aplicado automáticamente por
+            // SignInManager.CheckPasswordSignInAsync (Block 2), sin lógica adicional en Application
+            // ni Infrastructure.
+            options.Lockout.MaxFailedAccessAttempts = 5;
+            options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
+            options.Lockout.AllowedForNewUsers = true;
         });
 
         return builder;

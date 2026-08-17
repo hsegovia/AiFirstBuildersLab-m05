@@ -14,6 +14,15 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+    <!-- Necesarios para replicar en aislamiento (sin WebApplicationFactory) el mismo registro de
+         JwtSettings que Program.cs hace vía AddOptions<JwtSettings>().Bind(...).Validate(...)
+         (spec FEAT-001b, Block 1) — Microsoft.Extensions.Configuration.Abstractions ya llegaba
+         transitivamente, pero no la implementación concreta (ConfigurationBuilder + el memory
+         provider de AddInMemoryCollection, incluido en este mismo paquete). El binder
+         (Configuration.Binder) llega transitivamente vía Options.ConfigurationExtensions
+         (confirmado con "dotnet list package, include transitive"), no se referencia aparte. -->
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
     <!-- Overrides de seguridad (SAST, FEAT-001a): xunit arrastra NETStandard.Library 1.6.1, que
          resuelve System.Net.Http/System.Text.RegularExpressions 4.3.0 (CVEs High). Nunca se
          cargan en runtime en net8.0 (son solo ensamblados de referencia), pero se fijan a la

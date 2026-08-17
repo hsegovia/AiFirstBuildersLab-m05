@@ -8,9 +8,10 @@ import { MatButtonModule } from '@angular/material/button';
 
 import { AuthRoutingModule } from './auth-routing.module';
 import { RegistroOrganizadorComponent } from './components/registro-organizador/registro-organizador.component';
+import { LoginOrganizadorComponent } from './components/login-organizador/login-organizador.component';
 
 @NgModule({
-  declarations: [RegistroOrganizadorComponent],
+  declarations: [RegistroOrganizadorComponent, LoginOrganizadorComponent],
   imports: [
     CommonModule,
     ReactiveFormsModule,

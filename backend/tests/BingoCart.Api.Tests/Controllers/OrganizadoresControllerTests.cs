@@ -1,11 +1,16 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using BingoCart.Application.Auth;
 using BingoCart.Application.Organizadores.Dtos;
+using BingoCart.Infrastructure.Auth;
 using BingoCart.Infrastructure.Data;
+using BingoCart.Infrastructure.Tests.Auth;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace BingoCart.Api.Tests.Controllers;
 
@@ -210,5 +215,180 @@ public sealed class OrganizadoresControllerTests : IAsyncLifetime
         Assert.Equal("DatosInvalidos", error!.Error);
     }
 
+    [Fact]
+    public async Task Login_ConPasswordCorrecta_Devuelve200ConCookieHttpOnlySinTokenEnBodyYRapido()
+    {
+        var mail = NuevoMail();
+        var registro = await _client.PostAsJsonAsync("/api/organizadores/registro", CrearBody(mail: mail));
+        Assert.Equal(HttpStatusCode.Created, registro.StatusCode);
+
+        var stopwatch = Stopwatch.StartNew();
+        var response = await _client.PostAsJsonAsync(
+            "/api/organizadores/login",
+            new { mail, password = PasswordValida });
+        stopwatch.Stop();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1), $"El login tardó {stopwatch.Elapsed}.");
+
+        // El header Set-Cookie contiene una coma dentro del atributo `expires` (formato RFC 1123,
+        // ej. "expires=Mon, 17 Aug 2026..."), que HttpHeaders interpreta como separador de una
+        // lista de valores y parte en dos fragmentos — se unen para poder inspeccionar la cookie
+        // completa en una sola cadena, en vez de asumir un único valor.
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var cookies));
+        var cookie = string.Join("", cookies!);
+        Assert.StartsWith("bingocart_auth=", cookie);
+        Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=strict", cookie, StringComparison.OrdinalIgnoreCase);
+
+        var body = await response.Content.ReadAsStringAsync();
+        using var json = JsonDocument.Parse(body);
+        Assert.True(json.RootElement.TryGetProperty("expiraEnUtc", out _));
+        Assert.False(json.RootElement.TryGetProperty("token", out _));
+    }
+
+    [Fact]
+    public async Task Login_ConPasswordIncorrecta_Devuelve401SinSetCookie()
+    {
+        var mail = NuevoMail();
+        var registro = await _client.PostAsJsonAsync("/api/organizadores/registro", CrearBody(mail: mail));
+        Assert.Equal(HttpStatusCode.Created, registro.StatusCode);
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/organizadores/login",
+            new { mail, password = "PasswordIncorrecta1!" });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.False(response.Headers.Contains("Set-Cookie"));
+
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("CredencialesInvalidas", error!.Error);
+    }
+
+    [Fact]
+    public async Task Login_ConMailMalformado_Devuelve400DatosInvalidos()
+    {
+        var response = await _client.PostAsJsonAsync(
+            "/api/organizadores/login",
+            new { mail = "esto-no-es-un-mail", password = PasswordValida });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("DatosInvalidos", error!.Error);
+    }
+
+    [Fact]
+    public async Task Login_ConPasswordVacia_Devuelve400DatosInvalidos()
+    {
+        var mail = NuevoMail();
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/organizadores/login",
+            new { mail, password = "" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("DatosInvalidos", error!.Error);
+    }
+
+    [Fact]
+    public async Task Login_Con5IntentosFallidosPrevios_Bloquea6toIntentoAunqueLaPasswordSeaCorrecta()
+    {
+        var mail = NuevoMail();
+        var registro = await _client.PostAsJsonAsync("/api/organizadores/registro", CrearBody(mail: mail));
+        Assert.Equal(HttpStatusCode.Created, registro.StatusCode);
+
+        for (var intento = 1; intento <= 5; intento++)
+        {
+            var intentoFallido = await _client.PostAsJsonAsync(
+                "/api/organizadores/login",
+                new { mail, password = "PasswordIncorrecta1!" });
+
+            Assert.Equal(HttpStatusCode.Unauthorized, intentoFallido.StatusCode);
+        }
+
+        var sextoIntentoConPasswordCorrecta = await _client.PostAsJsonAsync(
+            "/api/organizadores/login",
+            new { mail, password = PasswordValida });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, sextoIntentoConPasswordCorrecta.StatusCode);
+        Assert.False(sextoIntentoConPasswordCorrecta.Headers.Contains("Set-Cookie"));
+    }
+
+    [Fact]
+    public async Task Perfil_SinCookieDeAutenticacion_Devuelve401()
+    {
+        var response = await _client.GetAsync("/api/organizadores/perfil");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Perfil_ConCookieDeLoginReal_Devuelve200ConElMailCorrecto()
+    {
+        var mail = NuevoMail();
+        var registro = await _client.PostAsJsonAsync("/api/organizadores/registro", CrearBody(mail: mail));
+        Assert.Equal(HttpStatusCode.Created, registro.StatusCode);
+
+        // Cliente dedicado con BaseAddress https://: la cookie `bingocart_auth` se fija con
+        // `Secure = true` (Block 2), y un CookieContainer nunca reenvía una cookie Secure sobre un
+        // origen http:// — el BaseAddress por defecto de WebApplicationFactory.CreateClient() es
+        // http://localhost, así que con _client la cookie quedaría guardada pero jamás se
+        // reenviaría a /perfil. El resto del comportamiento (HandleCookies = true por defecto)
+        // sigue siendo el mismo manejo automático de cookies de un navegador real.
+        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var login = await client.PostAsJsonAsync(
+            "/api/organizadores/login",
+            new { mail, password = PasswordValida });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+
+        var perfil = await client.GetAsync("/api/organizadores/perfil");
+
+        Assert.Equal(HttpStatusCode.OK, perfil.StatusCode);
+
+        var content = await perfil.Content.ReadFromJsonAsync<PerfilOrganizadorResponseDto>(DeserializeOptions);
+        Assert.NotNull(content);
+        Assert.Equal(mail, content!.Mail);
+    }
+
+    [Fact]
+    public async Task Perfil_ConTokenExpirado_Devuelve401()
+    {
+        // Mismos Issuer/Audience/SigningKey que usa el pipeline de AddJwtBearer bajo el entorno
+        // "Development" (appsettings.json + appsettings.Development.json, spec FEAT-001b Block 1),
+        // pero con un TestTimeProvider cuyo reloj ya está 61 minutos en el pasado — emite un token
+        // "ya vencido" sin esperar el plazo real de expiración (60 min).
+        var jwtSettings = Options.Create(new JwtSettings
+        {
+            Issuer = "BingoCart",
+            Audience = "BingoCart",
+            SigningKey = "-uBhxtdhOe3nsTJGPrTVZP1EL16zOGI0VYCVTbY8Zr57",
+            ExpirationMinutes = 60
+        });
+        var timeProvider = new TestTimeProvider(DateTimeOffset.UtcNow.AddMinutes(-61));
+        var jwtTokenService = new JwtTokenService(jwtSettings, timeProvider);
+        var tokenExpirado = jwtTokenService.GenerarToken(Guid.NewGuid(), "expirado@example.com").Token;
+
+        using var clienteSinCookiesAutomaticas = _factory.CreateClient();
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/organizadores/perfil");
+        request.Headers.Add("Cookie", $"bingocart_auth={tokenExpirado}");
+
+        var response = await clienteSinCookiesAutomaticas.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
     private sealed record ErrorResponseDto(string Error, string Message);
+
+    private sealed record PerfilOrganizadorResponseDto(string Mail);
 }

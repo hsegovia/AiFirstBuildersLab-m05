@@ -8,6 +8,14 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-001b**: Login de organizador — `POST /api/organizadores/login` (mail+contraseña),
+  emisión de JWT firmado HMAC-SHA256 (60 min) transportado en una cookie `httpOnly`/`Secure`/
+  `SameSite=Strict` (nunca en el body de la respuesta ni en `localStorage`, decisión de threat
+  modeling). Lockout de cuenta tras 5 intentos fallidos consecutivos (bloqueo de 5 min), mismo
+  mensaje de error para mail inexistente/password incorrecta/cuenta bloqueada. Endpoint mínimo
+  protegido `GET /api/organizadores/perfil` para verificar end-to-end el rechazo de JWT expirados.
+  Formulario de login en el frontend, sin persistencia del token en el cliente.
+
 - **FEAT-001a**: Registro de organizador — solución completa desde cero: solución .NET 8 por
   capas (Domain/Application/Infrastructure/Api), Angular 18 con NgModules, SQL Server dockerizado
   con TDE habilitado. Endpoint `POST /api/organizadores/registro` con validación de CUIT (dígito

@@ -1,12 +1,18 @@
+using System.Text;
 using System.Threading.RateLimiting;
 using BingoCart.Api.Middleware;
+using BingoCart.Application.Auth;
 using BingoCart.Application.Organizadores;
+using BingoCart.Infrastructure.Auth;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Identity;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,6 +30,89 @@ builder.Services
 
 builder.Services.AddScoped<IOrganizadorService, OrganizadorService>();
 builder.Services.AddScoped<IIdentityGateway, IdentityGateway>();
+
+// TimeProvider.System es el reloj real en producción; los tests inyectan un TestTimeProvider
+// propio en el JwtTokenService construido directamente (sin pasar por DI), spec FEAT-001b Block 1.
+builder.Services.AddSingleton(TimeProvider.System);
+
+// El required del record documenta la intención (SigningKey nunca debería faltar), pero
+// AddOptions<T>().Bind(...) construye la instancia vía Activator.CreateInstance (bypassea el
+// required, que es una verificación solo de compilador) y deja SigningKey en null si la clave no
+// está en configuración — por eso el predicado valida explícitamente contra null/vacío antes de
+// medir bytes, para fallar siempre con OptionsValidationException y el mensaje claro de abajo, en
+// vez de un ArgumentNullException sin contexto. Cubre ambos casos del Error handling documentado
+// en el spec: clave ausente y clave presente pero débil (<32 bytes, forzable por fuerza bruta).
+builder.Services
+    .AddOptions<JwtSettings>()
+    .Bind(builder.Configuration.GetSection("Jwt"))
+    .Validate(
+        settings => !string.IsNullOrWhiteSpace(settings.SigningKey)
+            && Encoding.UTF8.GetByteCount(settings.SigningKey) >= 32,
+        "Jwt:SigningKey debe tener al menos 32 bytes")
+    .ValidateOnStart();
+
+builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+
+// AddIdentity() (arriba) ya registró IdentityConstants.ApplicationScheme (cookie) como
+// DefaultChallengeScheme. AddAuthentication(defaultScheme) solo fija DefaultScheme — el challenge
+// scheme, si ya está seteado explícitamente por otra llamada anterior, no se sobreescribe con el
+// fallback. Sin fijar acá también DefaultAuthenticateScheme/DefaultChallengeScheme, [Authorize]
+// (Block 3) challengea el cookie de Identity (redirige 302 a /Account/Login) en vez de devolver 401
+// vía JwtBearer — hallazgo de CODE, Block 3, confirmado contra el pipeline real.
+// DefaultForbidScheme no se fija: cae en DefaultChallengeScheme por la cadena de fallback de
+// ASP.NET Core, y JwtBearerHandler no redirige en 403, así que el comportamiento ya es correcto.
+// DefaultSignInScheme tampoco se fija — hoy nada llama a HttpContext.SignInAsync sin scheme
+// explícito (SignInManager.CheckPasswordSignInAsync, usado en el login, no firma cookie; solo
+// valida password+lockout). Si un ticket futuro agrega un flujo que sí firme sin especificar
+// scheme, va a fallar en runtime (JwtBearerHandler no implementa IAuthenticationSignInHandler) —
+// señal clara de que hace falta fijarlo explícitamente en ese momento, no antes.
+builder.Services
+    .AddAuthentication(options =>
+    {
+        options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer();
+
+// Configura JwtBearerOptions a partir del MISMO IOptions<JwtSettings> ya validado arriba
+// (.ValidateOnStart()), en vez de releer builder.Configuration.GetSection("Jwt") de nuevo acá —
+// un solo camino de binding para JwtSettings, sin duplicar la lógica de parseo (hallazgo de
+// daw-arch-auditor en CODE, Block 1).
+builder.Services
+    .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtSettings>>((options, jwtSettingsOptions) =>
+    {
+        var jwtSettings = jwtSettingsOptions.Value;
+
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwtSettings.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwtSettings.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SigningKey)),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero
+        };
+
+        // El JWT viaja en la cookie httpOnly `bingocart_auth` (fijada por Block 2), nunca en el
+        // header Authorization — sin este evento, AddJwtBearer solo mira ese header por defecto y
+        // [Authorize] (Block 3) rechazaría siempre, incluso con la cookie presente.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (context.Request.Cookies.TryGetValue("bingocart_auth", out var token))
+                {
+                    context.Token = token;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
+    });
 
 builder.Services.AddControllers();
 
@@ -66,10 +155,14 @@ builder.Services.AddSwaggerGen();
 // del formulario de registro antes de que la request llegue al controller.
 builder.Services.AddCors(options =>
 {
+    // AllowCredentials() (spec FEAT-001b, Block 1): necesario para que el navegador envíe/reciba
+    // la cookie httpOnly bingocart_auth en requests cross-origin (:8000 -> :8080). Compatible con
+    // WithOrigins explícito (a diferencia de AllowAnyOrigin, incompatible por spec de CORS).
     options.AddPolicy("frontend", policy =>
         policy.WithOrigins("http://localhost:8000")
               .AllowAnyHeader()
-              .AllowAnyMethod());
+              .AllowAnyMethod()
+              .AllowCredentials());
 });
 
 var app = builder.Build();
@@ -89,6 +182,7 @@ app.UseCors("frontend");
 
 app.UseRateLimiter();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
