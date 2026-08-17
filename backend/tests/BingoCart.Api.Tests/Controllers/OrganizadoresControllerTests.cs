@@ -268,6 +268,36 @@ public sealed class OrganizadoresControllerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Login_ConMailMalformado_Devuelve400DatosInvalidos()
+    {
+        var response = await _client.PostAsJsonAsync(
+            "/api/organizadores/login",
+            new { mail = "esto-no-es-un-mail", password = PasswordValida });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("DatosInvalidos", error!.Error);
+    }
+
+    [Fact]
+    public async Task Login_ConPasswordVacia_Devuelve400DatosInvalidos()
+    {
+        var mail = NuevoMail();
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/organizadores/login",
+            new { mail, password = "" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("DatosInvalidos", error!.Error);
+    }
+
+    [Fact]
     public async Task Login_Con5IntentosFallidosPrevios_Bloquea6toIntentoAunqueLaPasswordSeaCorrecta()
     {
         var mail = NuevoMail();
