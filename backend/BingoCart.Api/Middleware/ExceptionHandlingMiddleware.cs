@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using BingoCart.Domain.Auth.Exceptions;
+using BingoCart.Domain.Bingos.Exceptions;
 using BingoCart.Domain.Common;
 using BingoCart.Domain.Organizadores.Exceptions;
 
@@ -51,6 +52,26 @@ public sealed class ExceptionHandlingMiddleware
         catch (CredencialesInvalidasException ex)
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Unauthorized, "CredencialesInvalidas");
+        }
+        catch (FechaSorteoInvalidaException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "FechaSorteoInvalida");
+        }
+        catch (CantidadCartonesExcedeLimiteException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "CantidadCartonesExcedeLimite");
+        }
+        catch (CantidadCartonesInvalidaException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "CantidadCartonesInvalida");
+        }
+        catch (CostoPorCartonInvalidoException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "CostoPorCartonInvalido");
+        }
+        catch (BingoActivoExistenteException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "BingoActivoExistente");
         }
         catch (Exception ex)
         {

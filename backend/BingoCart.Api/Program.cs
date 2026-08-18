@@ -1,9 +1,12 @@
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using BingoCart.Api.Middleware;
 using BingoCart.Application.Auth;
+using BingoCart.Application.Bingos;
 using BingoCart.Application.Organizadores;
 using BingoCart.Infrastructure.Auth;
+using BingoCart.Infrastructure.Bingos;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -30,6 +33,13 @@ builder.Services
 
 builder.Services.AddScoped<IOrganizadorService, OrganizadorService>();
 builder.Services.AddScoped<IIdentityGateway, IdentityGateway>();
+
+// FEAT-003, Block 4: IBingoRepository/IBingoService Scoped (mismo lifetime que IOrganizadorService
+// — dependen de AppDbContext, que es Scoped). ICartonNumberGenerator Singleton: no tiene estado ni
+// depende de nada con lifetime más corto (mismo criterio que JwtTokenService).
+builder.Services.AddScoped<IBingoService, BingoService>();
+builder.Services.AddScoped<IBingoRepository, BingoRepository>();
+builder.Services.AddSingleton<ICartonNumberGenerator, CartonNumberGenerator>();
 
 // TimeProvider.System es el reloj real en producción; los tests inyectan un TestTimeProvider
 // propio en el JwtTokenService construido directamente (sin pasar por DI), spec FEAT-001b Block 1.
@@ -137,12 +147,31 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
 // compartido por todos los clientes.
 builder.Services.AddRateLimiter(options =>
 {
+    // Default de ASP.NET Core es 503 (ServiceUnavailable) ante un rechazo — se fija explícitamente
+    // a 429 (semánticamente correcto para rate limiting, y el código que documenta el contrato de
+    // ambas políticas en Api contract/ProducesResponseType) para las políticas "registro" y
+    // "bingos".
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
     options.AddPolicy("registro", httpContext => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         factory: _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 5,
             Window = TimeSpan.FromMinutes(1)
+        }));
+
+    // Rate limiting sobre POST /api/bingos (threat model FEAT-003, riesgo TM-01): el chequeo de
+    // "bingo activo" (FR-06) evita el abuso CONCURRENTE, pero no evita que un organizador fije
+    // fechaSorteoUtc apenas en el futuro y repita la generación de hasta 5.000 cartones cada vez
+    // que esa fecha vence. Particionado por organizadorId (claim NameIdentifier del JWT), NO por
+    // IP como "registro" — este endpoint requiere autenticación, a diferencia del registro público.
+    options.AddPolicy("bingos", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 3,
+            Window = TimeSpan.FromMinutes(5)
         }));
 });
 
