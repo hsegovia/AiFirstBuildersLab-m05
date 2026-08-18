@@ -8,6 +8,13 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-004**: Listado de bingos propios del organizador — `GET /api/bingos` (protegido,
+  autenticado): un organizador lista los bingos que él mismo creó (nombre del evento, fecha de
+  sorteo, cantidad de cartones, costo por cartón), paginado (`page`/`pageSize`, máximo 100 por
+  página) y ordenado por fecha de creación descendente. `organizadorId` derivado exclusivamente del
+  JWT — nunca de un parámetro de la request, sin fuga entre organizadores. Backend-only, sin
+  pantalla "Mis bingos" en el frontend todavía.
+
 - **FEAT-003**: Creación de bingo con generación de cartones — `POST /api/bingos` (protegido,
   autenticado): un organizador crea un bingo (nombre de evento, fecha de sorteo, hasta 5.000
   cartones, costo por cartón) y el sistema genera atómicamente sus cartones (10 números únicos
