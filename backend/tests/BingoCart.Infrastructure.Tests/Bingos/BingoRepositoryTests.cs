@@ -166,4 +166,81 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
 
         await Assert.ThrowsAsync<DbUpdateException>(() => _context.SaveChangesAsync());
     }
+
+    [Fact]
+    public async Task ListarPorOrganizadorAsync_ConTresBingosYPageSizeDos_DevuelveDosBingosYTotalTres()
+    {
+        var organizadorId = Guid.NewGuid();
+        var ahoraUtc = DateTime.UtcNow;
+        _context.Bingos.AddRange(
+            NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc),
+            NuevoBingo(organizadorId, ahoraUtc.AddDays(6), ahoraUtc.AddMinutes(1)),
+            NuevoBingo(organizadorId, ahoraUtc.AddDays(7), ahoraUtc.AddMinutes(2)));
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ListarPorOrganizadorAsync(organizadorId, page: 1, pageSize: 2);
+
+        Assert.Equal(2, resultado.Bingos.Count);
+        Assert.Equal(3, resultado.Total);
+    }
+
+    [Fact]
+    public async Task ListarPorOrganizadorAsync_ConBingosDeDistintaFechaCreacion_DevuelveOrdenDescendente()
+    {
+        var organizadorId = Guid.NewGuid();
+        var ahoraUtc = DateTime.UtcNow;
+        var masAntiguo = NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc);
+        var masReciente = NuevoBingo(organizadorId, ahoraUtc.AddDays(6), ahoraUtc.AddMinutes(10));
+        _context.Bingos.AddRange(masAntiguo, masReciente);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ListarPorOrganizadorAsync(organizadorId, page: 1, pageSize: 10);
+
+        Assert.Equal(masReciente.Id, resultado.Bingos[0].Id);
+        Assert.Equal(masAntiguo.Id, resultado.Bingos[1].Id);
+    }
+
+    [Fact]
+    public async Task ListarPorOrganizadorAsync_ConOrganizadorSinBingos_DevuelveVacioYTotalCero()
+    {
+        var organizadorId = Guid.NewGuid();
+
+        var resultado = await _repository.ListarPorOrganizadorAsync(organizadorId, page: 1, pageSize: 20);
+
+        Assert.Empty(resultado.Bingos);
+        Assert.Equal(0, resultado.Total);
+    }
+
+    [Fact]
+    public async Task ListarPorOrganizadorAsync_ConBingosDeOtroOrganizador_NoLosIncluyeEnElResultado()
+    {
+        var organizadorId = Guid.NewGuid();
+        var otroOrganizadorId = Guid.NewGuid();
+        var ahoraUtc = DateTime.UtcNow;
+        _context.Bingos.Add(NuevoBingo(otroOrganizadorId, ahoraUtc.AddDays(5), ahoraUtc));
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ListarPorOrganizadorAsync(organizadorId, page: 1, pageSize: 20);
+
+        Assert.Empty(resultado.Bingos);
+        Assert.Equal(0, resultado.Total);
+    }
+
+    [Fact]
+    public async Task ListarPorOrganizadorAsync_ConPageDosPageSizeDosYTresBingos_DevuelveElBingoRestante()
+    {
+        var organizadorId = Guid.NewGuid();
+        var ahoraUtc = DateTime.UtcNow;
+        var primero = NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc);
+        var segundo = NuevoBingo(organizadorId, ahoraUtc.AddDays(6), ahoraUtc.AddMinutes(1));
+        var tercero = NuevoBingo(organizadorId, ahoraUtc.AddDays(7), ahoraUtc.AddMinutes(2));
+        _context.Bingos.AddRange(primero, segundo, tercero);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ListarPorOrganizadorAsync(organizadorId, page: 2, pageSize: 2);
+
+        Assert.Single(resultado.Bingos);
+        Assert.Equal(primero.Id, resultado.Bingos[0].Id);
+        Assert.Equal(3, resultado.Total);
+    }
 }

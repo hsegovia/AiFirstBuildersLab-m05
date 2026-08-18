@@ -29,4 +29,18 @@ public sealed class BingoRepository : IBingoRepository
 
         await _context.SaveChangesAsync();
     }
+
+    public async Task<BingosPaginados> ListarPorOrganizadorAsync(Guid organizadorId, int page, int pageSize)
+    {
+        var query = _context.Bingos.Where(b => b.OrganizadorId == organizadorId);
+
+        var total = await query.CountAsync();
+        var bingos = await query
+            .OrderByDescending(b => b.FechaCreacionUtc)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return new BingosPaginados(bingos, total);
+    }
 }
