@@ -8,6 +8,15 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-003**: Creación de bingo con generación de cartones — `POST /api/bingos` (protegido,
+  autenticado): un organizador crea un bingo (nombre de evento, fecha de sorteo, hasta 5.000
+  cartones, costo por cartón) y el sistema genera atómicamente sus cartones (10 números únicos
+  entre 1-90 por cartón, GUID único, sin conjuntos repetidos dentro del bingo) usando exclusivamente
+  CSPRNG (`RandomNumberGenerator`, RNF-07). Rechaza un segundo bingo mientras el organizador tenga
+  uno con sorteo vigente, y limita a 3 creaciones cada 5 minutos por organizador (rate limiting,
+  mitigación de abuso de la generación costosa). Backend-only, sin pantalla de creación en el
+  frontend todavía.
+
 - **FEAT-001b**: Login de organizador — `POST /api/organizadores/login` (mail+contraseña),
   emisión de JWT firmado HMAC-SHA256 (60 min) transportado en una cookie `httpOnly`/`Secure`/
   `SameSite=Strict` (nunca en el body de la respuesta ni en `localStorage`, decisión de threat
