@@ -51,4 +51,25 @@ public sealed class BingosController : ControllerBase
 
         return StatusCode(StatusCodes.Status201Created, response);
     }
+
+    /// <summary>
+    /// Lista paginada de los bingos propios del organizador autenticado, ordenados por fecha de
+    /// creación descendente (spec FEAT-004, Block 2). Sin rate limiting (decisión cerrada en
+    /// PLAN): a diferencia de <see cref="Crear"/>, este GET no tiene un costo análogo al de generar
+    /// hasta 5.000 cartones — mismo criterio que <c>GET /api/organizadores/perfil</c>.
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(BingoListadoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<BingoListadoResponse>> Listar([FromQuery] ListarBingosQuery query)
+    {
+        // Mismo patrón que Crear: organizadorId derivado exclusivamente del claim JWT, nunca de un
+        // parámetro de la request (NFR-02, mitigación R-01 del threat model).
+        var organizadorId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+        var response = await _bingoService.ListarPropiosAsync(organizadorId, query.Page, query.PageSize);
+
+        return Ok(response);
+    }
 }

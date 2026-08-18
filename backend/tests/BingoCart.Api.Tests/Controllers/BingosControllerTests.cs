@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading;
 using BingoCart.Application.Bingos.Dtos;
+using BingoCart.Domain.Bingos;
 using BingoCart.Infrastructure.Data;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -185,6 +186,31 @@ public sealed class BingosControllerTests : IAsyncLifetime
         return client;
     }
 
+    /// <summary>
+    /// Siembra un bingo directamente vía <see cref="AppDbContext"/> (mismo mecanismo que
+    /// <c>BingoRepositoryTests</c>, spec FEAT-004 Block 1), sin pasar por <c>POST /api/bingos</c>.
+    /// Necesario porque FR-06 (mitigación ya cerrada en FEAT-003) impide que un organizador tenga
+    /// más de un bingo con <c>FechaSorteoUtc</c> futura a la vez —
+    /// <see cref="BingoService.CrearAsync"/> lanza <c>BingoActivoExistenteException</c> en un
+    /// segundo <c>POST</c> real para el mismo organizador— así que los tests de este bloque que
+    /// necesitan varios bingos del MISMO organizador (orden, paginación) los siembran directo en la
+    /// base para ejercitar el LISTADO, no la creación (que ya está cubierta por los tests de
+    /// <c>Crear_*</c> de FEAT-003).
+    /// </summary>
+    private static async Task SeedBingoAsync(
+        Guid organizadorId,
+        DateTime fechaSorteoUtc,
+        DateTime fechaCreacionUtc,
+        string nombreEvento = "Bingo de prueba")
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(ConnectionString).Options;
+        await using var context = new AppDbContext(options);
+
+        var bingo = Bingo.Crear(nombreEvento, fechaSorteoUtc, 10, 100m, organizadorId, fechaCreacionUtc);
+        context.Bingos.Add(bingo);
+        await context.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task Crear_SinAutenticacion_Devuelve401()
     {
@@ -313,6 +339,124 @@ public sealed class BingosControllerTests : IAsyncLifetime
         var cuartoIntento = await client.PostAsJsonAsync("/api/bingos", CrearBodyBingo(cantidadCartones: 5001));
 
         Assert.Equal(HttpStatusCode.TooManyRequests, cuartoIntento.StatusCode);
+    }
+
+    [Fact]
+    public async Task Listar_SinAutenticacion_Devuelve401()
+    {
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/api/bingos");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Listar_ConDosBingosDelOrganizador_Devuelve200ConAmbosOrdenadosPorFechaCreacionDescendente()
+    {
+        using var client = await NuevoClienteAutenticadoAsync();
+        var organizadorId = _organizadorIdsCreados[^1];
+        var ahoraUtc = DateTime.UtcNow;
+
+        await SeedBingoAsync(organizadorId, ahoraUtc.AddDays(5), ahoraUtc, nombreEvento: "Bingo mas antiguo");
+        await SeedBingoAsync(
+            organizadorId, ahoraUtc.AddDays(6), ahoraUtc.AddMinutes(1), nombreEvento: "Bingo mas reciente");
+
+        var response = await client.GetAsync("/api/bingos");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<BingoListadoResponse>(DeserializeOptions);
+        Assert.NotNull(content);
+        Assert.Equal(2, content!.Items.Count);
+        Assert.Equal("Bingo mas reciente", content.Items[0].NombreEvento);
+        Assert.Equal("Bingo mas antiguo", content.Items[1].NombreEvento);
+        Assert.Equal(2, content.Total);
+    }
+
+    [Fact]
+    public async Task Listar_ConSieteBingosYPage2PageSize5_Devuelve200ConLosDosRestantesYTotalPaginasDos()
+    {
+        using var client = await NuevoClienteAutenticadoAsync();
+        var organizadorId = _organizadorIdsCreados[^1];
+        var ahoraUtc = DateTime.UtcNow;
+
+        for (var i = 0; i < 7; i++)
+        {
+            await SeedBingoAsync(
+                organizadorId, ahoraUtc.AddDays(5 + i), ahoraUtc.AddMinutes(i), nombreEvento: $"Bingo {i}");
+        }
+
+        var response = await client.GetAsync("/api/bingos?page=2&pageSize=5");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<BingoListadoResponse>(DeserializeOptions);
+        Assert.NotNull(content);
+        Assert.Equal(2, content!.Items.Count);
+        Assert.Equal(7, content.Total);
+        Assert.Equal(2, content.TotalPaginas);
+        Assert.Equal(2, content.Page);
+        Assert.Equal(5, content.PageSize);
+        // Orden descendente por FechaCreacionUtc: i=6..0. Page 1 (pageSize 5) = i=6,5,4,3,2. Page 2 =
+        // las posiciones 6 y 7 restantes = i=1, i=0.
+        Assert.Equal("Bingo 1", content.Items[0].NombreEvento);
+        Assert.Equal("Bingo 0", content.Items[1].NombreEvento);
+    }
+
+    [Fact]
+    public async Task Listar_ConPageCero_Devuelve400DatosInvalidos()
+    {
+        using var client = await NuevoClienteAutenticadoAsync();
+
+        var response = await client.GetAsync("/api/bingos?page=0");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("DatosInvalidos", error!.Error);
+    }
+
+    [Fact]
+    public async Task Listar_ConPageSizeNoNumerico_Devuelve400DatosInvalidosYConfirmaBindingPorConstructorDelRecord()
+    {
+        using var client = await NuevoClienteAutenticadoAsync();
+
+        var response = await client.GetAsync("/api/bingos?pageSize=abc");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("DatosInvalidos", error!.Error);
+    }
+
+    [Fact]
+    public async Task Listar_ConBingoDeOtroOrganizador_Devuelve200ConItemsVacioYTotalCero()
+    {
+        using var clienteA = await NuevoClienteAutenticadoAsync();
+        var creacionA = await clienteA.PostAsJsonAsync("/api/bingos", CrearBodyBingo());
+        Assert.Equal(HttpStatusCode.Created, creacionA.StatusCode);
+
+        using var clienteB = await NuevoClienteAutenticadoAsync();
+        var response = await clienteB.GetAsync("/api/bingos");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<BingoListadoResponse>(DeserializeOptions);
+        Assert.NotNull(content);
+        Assert.Empty(content!.Items);
+        Assert.Equal(0, content.Total);
+    }
+
+    [Fact]
+    public async Task Listar_SinBingosCreados_Devuelve200ConItemsVacioYTotalCero()
+    {
+        using var client = await NuevoClienteAutenticadoAsync();
+
+        var response = await client.GetAsync("/api/bingos");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<BingoListadoResponse>(DeserializeOptions);
+        Assert.NotNull(content);
+        Assert.Empty(content!.Items);
+        Assert.Equal(0, content.Total);
     }
 
     private sealed record RegistrarOrganizadorResponseDto(Guid Id, string NombreOrganizacion, string Mail);
