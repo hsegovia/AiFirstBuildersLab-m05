@@ -69,4 +69,29 @@ public sealed class BingoService : IBingoService
             bingo.CantidadCartones,
             bingo.CostoPorCarton);
     }
+
+    public async Task<BingoListadoResponse> ListarPropiosAsync(Guid organizadorId, int page, int pageSize)
+    {
+        // Defensa en profundidad ante R-02 del threat model: [Range] en ListarBingosQuery valida el
+        // mínimo, no el máximo — acá se clampea el máximo real aplicado, sin depender únicamente de
+        // la validación de modelo.
+        var pageSizeClamped = Math.Min(pageSize, 100);
+
+        var paginados = await _bingoRepository.ListarPorOrganizadorAsync(organizadorId, page, pageSizeClamped);
+
+        var items = paginados.Bingos
+            .Select(b => new BingoCreadoResponse(
+                b.Id,
+                b.NombreEvento,
+                b.FechaSorteoUtc,
+                b.CantidadCartones,
+                b.CostoPorCarton))
+            .ToList();
+
+        var totalPaginas = paginados.Total == 0
+            ? 0
+            : (int)Math.Ceiling(paginados.Total / (double)pageSizeClamped);
+
+        return new BingoListadoResponse(items, paginados.Total, totalPaginas, page, pageSizeClamped);
+    }
 }

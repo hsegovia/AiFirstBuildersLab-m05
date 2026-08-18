@@ -13,4 +13,13 @@ public interface IBingoService
     /// Crea un bingo para <paramref name="organizadorId"/> y genera atómicamente sus cartones.
     /// </summary>
     Task<BingoCreadoResponse> CrearAsync(CrearBingoRequest request, Guid organizadorId);
+
+    /// <summary>
+    /// Lista paginada de los bingos propios de <paramref name="organizadorId"/>, ordenados por
+    /// fecha de creación descendente (spec FEAT-004, Block 2). <paramref name="pageSize"/> se
+    /// clampea a 100 antes de llegar a <see cref="IBingoRepository"/> (AC-06, defensa en
+    /// profundidad ante R-02 del threat model) — el <c>PageSize</c> devuelto en la respuesta es el
+    /// valor ya clampeado, no el solicitado.
+    /// </summary>
+    Task<BingoListadoResponse> ListarPropiosAsync(Guid organizadorId, int page, int pageSize);
 }

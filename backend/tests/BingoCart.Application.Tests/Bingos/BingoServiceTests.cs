@@ -104,4 +104,69 @@ public class BingoServiceTests
             r => r.CrearAsync(It.IsAny<Bingo>(), It.IsAny<IReadOnlyList<Carton>>()),
             Times.Never());
     }
+
+    [Fact]
+    public async Task ListarPropiosAsync_ConDatosValidos_DevuelveBingoListadoResponseCorrecto()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var bingoMasAntiguo = Bingo.Crear("Bingo A", ahoraUtc.AddDays(5), 10, 100m, OrganizadorId, ahoraUtc);
+        var bingoMasReciente = Bingo.Crear(
+            "Bingo B", ahoraUtc.AddDays(6), 20, 200m, OrganizadorId, ahoraUtc.AddMinutes(1));
+
+        var repository = new Mock<IBingoRepository>();
+        repository
+            .Setup(r => r.ListarPorOrganizadorAsync(OrganizadorId, 1, 20))
+            .ReturnsAsync(new BingosPaginados(new[] { bingoMasReciente, bingoMasAntiguo }, 2));
+
+        var generador = new Mock<ICartonNumberGenerator>();
+        var service = CrearService(repository, generador);
+
+        var response = await service.ListarPropiosAsync(OrganizadorId, page: 1, pageSize: 20);
+
+        Assert.Equal(2, response.Items.Count);
+        Assert.Equal(bingoMasReciente.Id, response.Items[0].Id);
+        Assert.Equal(bingoMasReciente.NombreEvento, response.Items[0].NombreEvento);
+        Assert.Equal(bingoMasReciente.FechaSorteoUtc, response.Items[0].FechaSorteoUtc);
+        Assert.Equal(bingoMasReciente.CantidadCartones, response.Items[0].CantidadCartones);
+        Assert.Equal(bingoMasReciente.CostoPorCarton, response.Items[0].CostoPorCarton);
+        Assert.Equal(bingoMasAntiguo.Id, response.Items[1].Id);
+        Assert.Equal(2, response.Total);
+        Assert.Equal(1, response.TotalPaginas);
+        Assert.Equal(1, response.Page);
+        Assert.Equal(20, response.PageSize);
+    }
+
+    [Fact]
+    public async Task ListarPropiosAsync_ConPageSize500_InvocaAlRepositorioConPageSizeClampeadoA100()
+    {
+        var repository = new Mock<IBingoRepository>();
+        repository
+            .Setup(r => r.ListarPorOrganizadorAsync(OrganizadorId, 1, 100))
+            .ReturnsAsync(new BingosPaginados(Array.Empty<Bingo>(), 0));
+
+        var generador = new Mock<ICartonNumberGenerator>();
+        var service = CrearService(repository, generador);
+
+        await service.ListarPropiosAsync(OrganizadorId, page: 1, pageSize: 500);
+
+        repository.Verify(r => r.ListarPorOrganizadorAsync(OrganizadorId, 1, 100), Times.Once());
+    }
+
+    [Fact]
+    public async Task ListarPropiosAsync_ConOrganizadorSinBingos_DevuelveItemsVacioYTotalCero()
+    {
+        var repository = new Mock<IBingoRepository>();
+        repository
+            .Setup(r => r.ListarPorOrganizadorAsync(OrganizadorId, 1, 20))
+            .ReturnsAsync(new BingosPaginados(Array.Empty<Bingo>(), 0));
+
+        var generador = new Mock<ICartonNumberGenerator>();
+        var service = CrearService(repository, generador);
+
+        var response = await service.ListarPropiosAsync(OrganizadorId, page: 1, pageSize: 20);
+
+        Assert.Empty(response.Items);
+        Assert.Equal(0, response.Total);
+        Assert.Equal(0, response.TotalPaginas);
+    }
 }
