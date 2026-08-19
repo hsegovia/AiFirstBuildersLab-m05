@@ -243,4 +243,69 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         Assert.Equal(primero.Id, resultado.Bingos[0].Id);
         Assert.Equal(3, resultado.Total);
     }
+
+    [Fact]
+    public async Task ObtenerPorIdAsync_ConIdExistente_DevuelveElBingoCorrecto()
+    {
+        var organizadorId = Guid.NewGuid();
+        var ahoraUtc = DateTime.UtcNow;
+        var bingo = NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc);
+        _context.Bingos.Add(bingo);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ObtenerPorIdAsync(bingo.Id);
+
+        Assert.NotNull(resultado);
+        Assert.Equal(bingo.Id, resultado!.Id);
+        Assert.Equal(bingo.OrganizadorId, resultado.OrganizadorId);
+        Assert.Equal(bingo.NombreEvento, resultado.NombreEvento);
+        Assert.Equal(bingo.FechaSorteoUtc, resultado.FechaSorteoUtc);
+        Assert.Equal(bingo.CantidadCartones, resultado.CantidadCartones);
+        Assert.Equal(bingo.CostoPorCarton, resultado.CostoPorCarton);
+    }
+
+    [Fact]
+    public async Task ObtenerPorIdAsync_ConIdInexistente_DevuelveNull()
+    {
+        var resultado = await _repository.ObtenerPorIdAsync(Guid.NewGuid());
+
+        Assert.Null(resultado);
+    }
+
+    [Fact]
+    public async Task EliminarAsync_SobreUnBingoConCartones_NiElBingoNiSusCartonesQuedanEnLaBase()
+    {
+        var organizadorId = Guid.NewGuid();
+        var ahoraUtc = DateTime.UtcNow;
+        var bingo = NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc);
+        var cartones = new[]
+        {
+            NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+            NuevoCarton(bingo.Id, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20),
+        };
+        await _repository.CrearAsync(bingo, cartones);
+
+        await _repository.EliminarAsync(bingo);
+
+        var bingoRestante = await _context.Bingos.SingleOrDefaultAsync(b => b.Id == bingo.Id);
+        var cartonesRestantes = await _context.Cartones.Where(c => c.BingoId == bingo.Id).ToListAsync();
+        Assert.Null(bingoRestante);
+        Assert.Empty(cartonesRestantes);
+    }
+
+    [Fact]
+    public async Task TieneComprasRegistradasAsync_ConCualquierBingoId_SiempreDevuelveFalse()
+    {
+        var organizadorId = Guid.NewGuid();
+        var ahoraUtc = DateTime.UtcNow;
+        var bingo = NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc);
+        _context.Bingos.Add(bingo);
+        await _context.SaveChangesAsync();
+
+        var resultadoConBingoRecienCreado = await _repository.TieneComprasRegistradasAsync(bingo.Id);
+        var resultadoConIdInexistente = await _repository.TieneComprasRegistradasAsync(Guid.NewGuid());
+
+        Assert.False(resultadoConBingoRecienCreado);
+        Assert.False(resultadoConIdInexistente);
+    }
 }

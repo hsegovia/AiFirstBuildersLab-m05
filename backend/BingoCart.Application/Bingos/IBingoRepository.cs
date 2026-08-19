@@ -29,4 +29,33 @@ public interface IBingoRepository
     /// (Application, Block 2) — este puerto no revalida.
     /// </summary>
     Task<BingosPaginados> ListarPorOrganizadorAsync(Guid organizadorId, int page, int pageSize);
+
+    /// <summary>
+    /// Devuelve el <see cref="Bingo"/> con <paramref name="id"/>, trackeado por el <c>DbContext</c>
+    /// (spec FEAT-007, Block 1) — así una mutación posterior vía <c>Bingo.Actualizar</c> queda
+    /// detectada por EF Core sin necesidad de un <c>Update()</c> explícito. <c>null</c> si no existe.
+    /// </summary>
+    Task<Bingo?> ObtenerPorIdAsync(Guid id);
+
+    /// <summary>
+    /// Elimina <paramref name="bingo"/> junto con todos sus <c>Cartones</c> (cascade configurado a
+    /// nivel de esquema en <c>AppDbContext</c>) en una sola operación.
+    /// </summary>
+    Task EliminarAsync(Bingo bingo);
+
+    /// <summary>
+    /// Indica si el bingo <paramref name="bingoId"/> tiene al menos una compra registrada. Punto de
+    /// extensión: hoy siempre devuelve <c>false</c> porque la entidad <c>Compra</c> todavía no existe
+    /// (ticket futuro de carrito/compra) — ver implementación en
+    /// <c>BingoCart.Infrastructure.Bingos.BingoRepository</c>.
+    /// </summary>
+    Task<bool> TieneComprasRegistradasAsync(Guid bingoId);
+
+    /// <summary>
+    /// Persiste los cambios pendientes en el <c>DbContext</c> (spec FEAT-007, Block 2). Necesario
+    /// porque <c>Bingo.Actualizar</c> muta la instancia ya trackeada devuelta por
+    /// <see cref="ObtenerPorIdAsync"/> — no hay otro método de este puerto que persista esa
+    /// mutación.
+    /// </summary>
+    Task GuardarCambiosAsync();
 }

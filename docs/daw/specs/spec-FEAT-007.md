@@ -299,14 +299,15 @@ capturadas en el middleware ya existente). `FechaSorteoInvalidaException`/
   AC-08 end-to-end.
 
 **Completion criterion**
-Los 16 tests pasan; ningún organizador puede editar ni eliminar un bingo ajeno (verificado con dos
-organizadores reales, no solo con un Id inventado); eliminar un bingo elimina también sus cartones,
-verificado con una consulta directa a la tabla `Cartones` (no solo por la ausencia en el listado).
+Los 17 tests pasan (7 unit en `BingoServiceTests` + 10 de integración en `BingosControllerTests`);
+ningún organizador puede editar ni eliminar un bingo ajeno (verificado con dos organizadores reales,
+no solo con un Id inventado); eliminar un bingo elimina también sus cartones, verificado con una
+consulta directa a la tabla `Cartones` (no solo por la ausencia en el listado).
 
 ## Final verification
 
-`dotnet build`/`dotnet test` sobre `backend/BingoCart.sln` en verde, incluyendo los 23 tests
-automatizados nuevos de los Blocks 1-2 (7+16). Un organizador autenticado puede editar y eliminar sus
+`dotnet build`/`dotnet test` sobre `backend/BingoCart.sln` en verde, incluyendo los 24 tests
+automatizados nuevos de los Blocks 1-2 (7+17). Un organizador autenticado puede editar y eliminar sus
 propios bingos sin compras registradas; cualquier intento sobre un bingo ajeno o inexistente devuelve
 404 sin distinguir el caso; eliminar un bingo elimina también todos sus cartones en la misma
 operación. Ningún frontend se toca en este ticket (confirmado backend-only por el PRD, mismo criterio

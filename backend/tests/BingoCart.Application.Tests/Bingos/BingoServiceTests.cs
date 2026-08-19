@@ -169,4 +169,140 @@ public class BingoServiceTests
         Assert.Equal(0, response.Total);
         Assert.Equal(0, response.TotalPaginas);
     }
+
+    private static EditarBingoRequest EditarRequest(
+        string nombreEvento = "Bingo editado",
+        decimal costoPorCarton = 150m) =>
+        new(nombreEvento, DateTime.UtcNow.AddDays(10), costoPorCarton);
+
+    private static Bingo BingoDePrueba(Guid organizadorId, DateTime? ahoraUtc = null) =>
+        Bingo.Crear(
+            "Bingo original",
+            (ahoraUtc ?? DateTime.UtcNow).AddDays(5),
+            3,
+            100m,
+            organizadorId,
+            ahoraUtc ?? DateTime.UtcNow);
+
+    [Fact]
+    public async Task EditarAsync_ConDatosValidosYBingoPropioSinCompras_DevuelveResponseActualizadoYGuardaCambios()
+    {
+        var bingo = BingoDePrueba(OrganizadorId);
+
+        var repository = new Mock<IBingoRepository>();
+        repository.Setup(r => r.ObtenerPorIdAsync(bingo.Id)).ReturnsAsync(bingo);
+        repository.Setup(r => r.TieneComprasRegistradasAsync(bingo.Id)).ReturnsAsync(false);
+        repository.Setup(r => r.GuardarCambiosAsync()).Returns(Task.CompletedTask);
+
+        var generador = new Mock<ICartonNumberGenerator>();
+        var service = CrearService(repository, generador);
+        var request = EditarRequest(nombreEvento: "Bingo Club Editado", costoPorCarton: 300m);
+
+        var response = await service.EditarAsync(bingo.Id, request, OrganizadorId);
+
+        Assert.Equal(bingo.Id, response.Id);
+        Assert.Equal("Bingo Club Editado", response.NombreEvento);
+        Assert.Equal(request.FechaSorteoUtc, response.FechaSorteoUtc);
+        Assert.Equal(3, response.CantidadCartones);
+        Assert.Equal(300m, response.CostoPorCarton);
+
+        repository.Verify(r => r.GuardarCambiosAsync(), Times.Once());
+    }
+
+    [Fact]
+    public async Task EditarAsync_ConIdInexistente_LanzaBingoNoEncontradoException()
+    {
+        var repository = new Mock<IBingoRepository>();
+        repository.Setup(r => r.ObtenerPorIdAsync(It.IsAny<Guid>())).ReturnsAsync((Bingo?)null);
+
+        var generador = new Mock<ICartonNumberGenerator>();
+        var service = CrearService(repository, generador);
+
+        await Assert.ThrowsAsync<BingoNoEncontradoException>(() =>
+            service.EditarAsync(Guid.NewGuid(), EditarRequest(), OrganizadorId));
+    }
+
+    [Fact]
+    public async Task EditarAsync_ConBingoDeOtroOrganizador_LanzaBingoNoEncontradoException()
+    {
+        var otroOrganizadorId = Guid.NewGuid();
+        var bingo = BingoDePrueba(otroOrganizadorId);
+
+        var repository = new Mock<IBingoRepository>();
+        repository.Setup(r => r.ObtenerPorIdAsync(bingo.Id)).ReturnsAsync(bingo);
+
+        var generador = new Mock<ICartonNumberGenerator>();
+        var service = CrearService(repository, generador);
+
+        // Mismo tipo de excepción que el Id inexistente (no-enumeración) — verificado explícitamente.
+        await Assert.ThrowsAsync<BingoNoEncontradoException>(() =>
+            service.EditarAsync(bingo.Id, EditarRequest(), OrganizadorId));
+    }
+
+    [Fact]
+    public async Task EditarAsync_ConComprasRegistradas_LanzaBingoConComprasException()
+    {
+        var bingo = BingoDePrueba(OrganizadorId);
+
+        var repository = new Mock<IBingoRepository>();
+        repository.Setup(r => r.ObtenerPorIdAsync(bingo.Id)).ReturnsAsync(bingo);
+        repository.Setup(r => r.TieneComprasRegistradasAsync(bingo.Id)).ReturnsAsync(true);
+
+        var generador = new Mock<ICartonNumberGenerator>();
+        var service = CrearService(repository, generador);
+
+        await Assert.ThrowsAsync<BingoConComprasException>(() =>
+            service.EditarAsync(bingo.Id, EditarRequest(), OrganizadorId));
+
+        repository.Verify(r => r.GuardarCambiosAsync(), Times.Never());
+    }
+
+    [Fact]
+    public async Task EliminarAsync_ConBingoPropioSinCompras_InvocaEliminarAsyncConElBingoCorrecto()
+    {
+        var bingo = BingoDePrueba(OrganizadorId);
+
+        var repository = new Mock<IBingoRepository>();
+        repository.Setup(r => r.ObtenerPorIdAsync(bingo.Id)).ReturnsAsync(bingo);
+        repository.Setup(r => r.TieneComprasRegistradasAsync(bingo.Id)).ReturnsAsync(false);
+        repository.Setup(r => r.EliminarAsync(bingo)).Returns(Task.CompletedTask);
+
+        var generador = new Mock<ICartonNumberGenerator>();
+        var service = CrearService(repository, generador);
+
+        await service.EliminarAsync(bingo.Id, OrganizadorId);
+
+        repository.Verify(r => r.EliminarAsync(bingo), Times.Once());
+    }
+
+    [Fact]
+    public async Task EliminarAsync_ConIdInexistente_LanzaBingoNoEncontradoException()
+    {
+        var repository = new Mock<IBingoRepository>();
+        repository.Setup(r => r.ObtenerPorIdAsync(It.IsAny<Guid>())).ReturnsAsync((Bingo?)null);
+
+        var generador = new Mock<ICartonNumberGenerator>();
+        var service = CrearService(repository, generador);
+
+        await Assert.ThrowsAsync<BingoNoEncontradoException>(() =>
+            service.EliminarAsync(Guid.NewGuid(), OrganizadorId));
+    }
+
+    [Fact]
+    public async Task EliminarAsync_ConComprasRegistradas_LanzaBingoConComprasException()
+    {
+        var bingo = BingoDePrueba(OrganizadorId);
+
+        var repository = new Mock<IBingoRepository>();
+        repository.Setup(r => r.ObtenerPorIdAsync(bingo.Id)).ReturnsAsync(bingo);
+        repository.Setup(r => r.TieneComprasRegistradasAsync(bingo.Id)).ReturnsAsync(true);
+
+        var generador = new Mock<ICartonNumberGenerator>();
+        var service = CrearService(repository, generador);
+
+        await Assert.ThrowsAsync<BingoConComprasException>(() =>
+            service.EliminarAsync(bingo.Id, OrganizadorId));
+
+        repository.Verify(r => r.EliminarAsync(It.IsAny<Bingo>()), Times.Never());
+    }
 }
