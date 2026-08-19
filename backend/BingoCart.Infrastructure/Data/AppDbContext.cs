@@ -65,6 +65,12 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
             // organizador puede tener bingos históricos, solo uno vigente a la vez (validado en
             // Application).
             entity.HasIndex(b => b.OrganizadorId);
+
+            // Índice nuevo (spec FEAT-005, Block 1): el directorio público filtra por
+            // `FechaSorteoUtc > ahoraUtc` y ordena por la misma columna en cada request — sin este
+            // índice, el JOIN con `Users` forzaría un table scan de `Bingos` (NFR-01). No único:
+            // múltiples bingos pueden compartir fecha de sorteo.
+            entity.HasIndex(b => b.FechaSorteoUtc);
         });
 
         builder.Entity<Carton>(entity =>
