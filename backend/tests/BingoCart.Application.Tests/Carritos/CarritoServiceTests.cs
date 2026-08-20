@@ -5,6 +5,7 @@ using BingoCart.Application.Descubrimiento;
 using BingoCart.Domain.Bingos;
 using BingoCart.Domain.Carritos;
 using BingoCart.Domain.Carritos.Exceptions;
+using BingoCart.Domain.Organizadores.Exceptions;
 using Moq;
 
 namespace BingoCart.Application.Tests.Carritos;
@@ -215,6 +216,36 @@ public class CarritoServiceTests
 
         carritoRepository.VerifyNoOtherCalls();
         descubrimientoRepository.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task PedirNuevaTandaPorOrganizadorAsync_ConOrganizadorInexistente_LanzaOrganizadorNoEncontradoExceptionSinInvocarObtenerBingoActivoNiAleatorios()
+    {
+        // F-VER-04: rama nueva de este ticket (organizadorId sin organizador registrado) sin
+        // ningún test que la ejerza — mismo patrón que
+        // DescubrimientoServiceTests.DescubrirPorOrganizadorAsync_ConOrganizadorInexistente_...
+        var sesionId = Guid.NewGuid().ToString();
+        var organizadorId = Guid.NewGuid();
+
+        var carritoRepository = new Mock<ICarritoRepository>();
+        var bingoRepository = new Mock<IBingoRepository>();
+        var descubrimientoRepository = new Mock<IDescubrimientoRepository>();
+
+        descubrimientoRepository
+            .Setup(r => r.ExisteOrganizadorAsync(organizadorId))
+            .ReturnsAsync(false);
+
+        var service = CrearService(carritoRepository, bingoRepository, descubrimientoRepository);
+
+        await Assert.ThrowsAsync<OrganizadorNoEncontradoException>(
+            () => service.PedirNuevaTandaPorOrganizadorAsync(sesionId, organizadorId, Array.Empty<Guid>()));
+
+        descubrimientoRepository.Verify(
+            r => r.ObtenerBingoActivoDeOrganizadorAsync(It.IsAny<Guid>(), It.IsAny<DateTime>()),
+            Times.Never());
+        descubrimientoRepository.Verify(
+            r => r.ObtenerAleatoriosDeBingoAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<IReadOnlyCollection<Guid>>()),
+            Times.Never());
     }
 
     [Fact]

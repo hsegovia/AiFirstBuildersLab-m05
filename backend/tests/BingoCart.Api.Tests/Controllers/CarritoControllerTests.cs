@@ -388,6 +388,29 @@ public sealed class CarritoControllerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task NuevaTanda_ConOrganizadorIdInexistente_Devuelve404OrganizadorNoEncontrado()
+    {
+        // F-VER-04: `organizadorId` sin organizador registrado — sad-path del Método 2 sin
+        // ningún test hasta ahora, ni unitario ni de integración.
+        using var client = NuevoClienteConCookieHttps();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/carrito/tandas/nueva",
+            new { organizadorId = (Guid?)Guid.NewGuid(), cartonIdsDescartados = Array.Empty<Guid>() });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("OrganizadorNoEncontrado", error!.Error);
+        // Sin RegistrarLimpiezaRedis: CarritoService.PedirNuevaTandaPorOrganizadorAsync lanza
+        // OrganizadorNoEncontradoException ANTES de invocar PrepararExclusionAsync (el único punto
+        // de este método que escribe en Redis, vía AgregarDescartadosAsync) — la cookie de sesión sí
+        // se fija (ObtenerOCrearSesionId corre al inicio de NuevaTanda, antes de llamar al servicio),
+        // pero no llega a crearse ninguna clave "carrito:{sesionId}" ni "descartados:{sesionId}" que
+        // limpiar. Confirmado corriendo este test con `redis-cli DBSIZE` antes/después: sin cambios.
+    }
+
+    [Fact]
     public async Task NuevaTanda_Con51CartonIdsDescartados_Devuelve400CantidadDescartadosExcedeLimite()
     {
         // Corrección post-SAST (F-SAST-14): 51 elementos supera el límite (50) — la validación corta

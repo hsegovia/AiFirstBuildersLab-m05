@@ -31,4 +31,4 @@ namespace BingoCart.Api.Contracts;
 /// </summary>
 public sealed record NuevaTandaRequest(
     Guid? OrganizadorId,
-    [property: ValidateNever] [param: ValidateNever] IReadOnlyList<Guid> CartonIdsDescartados);
+    [property: ValidateNever][param: ValidateNever] IReadOnlyList<Guid> CartonIdsDescartados);
