@@ -4,6 +4,15 @@
     <ProjectReference Include="..\BingoCart.Domain\BingoCart.Domain.csproj" />
   </ItemGroup>
 
+  <!-- spec FEAT-009a, Block 2: Logging.Abstractions para el warning no bloqueante del paso 6
+       (liberar Redis tras un commit SQL exitoso), sin acoplar Application a ningún proveedor de
+       logging concreto. La traducción DbUpdateException -> ReservaCarritoInvalidaException vive en
+       Infrastructure (CompraRepository), no acá — Application nunca depende de EF Core
+       (corrective round 2, AGENTS.md "Layer separation"). -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

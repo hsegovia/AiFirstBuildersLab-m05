@@ -80,7 +80,7 @@ public sealed class OrganizadorService : IOrganizadorService
                 "IIdentityGateway.AutenticarAsync devolvió Exitoso sin OrganizadorId.");
         }
 
-        var tokenGenerado = _jwtTokenService.GenerarToken(organizadorId, request.Mail);
+        var tokenGenerado = _jwtTokenService.GenerarToken(organizadorId, request.Mail, "Organizador");
 
         return new LoginOrganizadorResponse(tokenGenerado.Token, tokenGenerado.ExpiraEnUtc);
     }

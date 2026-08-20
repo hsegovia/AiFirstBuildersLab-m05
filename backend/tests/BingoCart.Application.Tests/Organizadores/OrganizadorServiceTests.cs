@@ -135,7 +135,9 @@ public class OrganizadorServiceTests
 
         var expiraEnUtc = new DateTime(2026, 1, 1, 1, 0, 0, DateTimeKind.Utc);
         var jwtTokenService = new Mock<IJwtTokenService>();
-        jwtTokenService.Setup(j => j.GenerarToken(organizadorId, mail))
+        // spec FEAT-009a, Block 2: GenerarToken gana un tercer parámetro `rol` — regresión de que
+        // el flujo de organizador sigue pasando "Organizador" sin cambiar su comportamiento.
+        jwtTokenService.Setup(j => j.GenerarToken(organizadorId, mail, "Organizador"))
             .Returns(new TokenGenerado("token-jwt-de-prueba", expiraEnUtc));
 
         var service = CrearService(gateway, jwtTokenService);

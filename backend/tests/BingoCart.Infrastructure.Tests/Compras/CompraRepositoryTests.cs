@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using BingoCart.Application.Compras;
 using BingoCart.Domain.Compras;
+using BingoCart.Domain.Compras.Exceptions;
 using BingoCart.Infrastructure.Compras;
 using BingoCart.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -80,7 +81,7 @@ public sealed class CompraRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CrearVariasAsync_ConCartonIdQueYaExisteEnCompraCartones_LanzaDbUpdateExceptionYNoPersisteNadaDelIntentoActual()
+    public async Task CrearVariasAsync_ConCartonIdQueYaExisteEnCompraCartones_LanzaReservaCarritoInvalidaExceptionYNoPersisteNadaDelIntentoActual()
     {
         var cartonYaVendido = Guid.NewGuid();
         var compraPrevia = NuevaCompra(Guid.NewGuid(), Guid.NewGuid(), MedioPago.Efectivo, cartonYaVendido);
@@ -99,7 +100,10 @@ public sealed class CompraRepositoryTests : IAsyncLifetime
         var organizadorNuevoIntento = Guid.NewGuid();
         var compraDelIntentoActual = NuevaCompra(organizadorNuevoIntento, Guid.NewGuid(), MedioPago.Transferencia, cartonYaVendido);
 
-        await Assert.ThrowsAsync<DbUpdateException>(() =>
+        // Corrective round 2: la traducción DbUpdateException -> ReservaCarritoInvalidaException
+        // ahora vive en Infrastructure (antes en Application, spec FEAT-009a Block 2) — Application
+        // no puede depender de Microsoft.EntityFrameworkCore (AGENTS.md, "Layer separation").
+        await Assert.ThrowsAsync<ReservaCarritoInvalidaException>(() =>
             _repository.CrearVariasAsync(new[] { compraDelIntentoActual }));
 
         var compraDelIntentoPersistida = await _context.Compras
