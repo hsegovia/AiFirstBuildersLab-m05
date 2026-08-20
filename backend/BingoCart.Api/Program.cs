@@ -4,10 +4,12 @@ using System.Threading.RateLimiting;
 using BingoCart.Api.Middleware;
 using BingoCart.Application.Auth;
 using BingoCart.Application.Bingos;
+using BingoCart.Application.Descubrimiento;
 using BingoCart.Application.Organizadores;
 using BingoCart.Infrastructure.Auth;
 using BingoCart.Infrastructure.Bingos;
 using BingoCart.Infrastructure.Data;
+using BingoCart.Infrastructure.Descubrimiento;
 using BingoCart.Infrastructure.Identity;
 using BingoCart.Infrastructure.Organizadores;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -45,6 +47,11 @@ builder.Services.AddSingleton<ICartonNumberGenerator, CartonNumberGenerator>();
 // FEAT-005, Block 2: IDirectorioRepository Scoped, mismo lifetime que IBingoRepository — depende
 // de AppDbContext.
 builder.Services.AddScoped<IDirectorioRepository, DirectorioRepository>();
+
+// FEAT-008a, Block 2: IDescubrimientoRepository/IDescubrimientoService Scoped, mismo lifetime que
+// IDirectorioRepository/IOrganizadorService — dependen de AppDbContext.
+builder.Services.AddScoped<IDescubrimientoRepository, DescubrimientoRepository>();
+builder.Services.AddScoped<IDescubrimientoService, DescubrimientoService>();
 
 // TimeProvider.System es el reloj real en producción; los tests inyectan un TestTimeProvider
 // propio en el JwtTokenService construido directamente (sin pasar por DI), spec FEAT-001b Block 1.
@@ -189,6 +196,18 @@ builder.Services.AddRateLimiter(options =>
         factory: _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 30,
+            Window = TimeSpan.FromMinutes(5)
+        }));
+
+    // Rate limiting sobre GET /api/cartones/descubrimiento y GET /api/cartones/organizador/{id}
+    // (spec FEAT-008a, threat model, riesgo NFR-02: spam/DoS sin autenticación), particionado por
+    // IP (mismo criterio que "directorio"), con un límite más generoso (60 req/5 min) porque ambos
+    // endpoints alimentan una vista de descubrimiento pensada para refrescarse con frecuencia.
+    options.AddPolicy("descubrimiento", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 60,
             Window = TimeSpan.FromMinutes(5)
         }));
 });

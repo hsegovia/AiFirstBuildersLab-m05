@@ -328,15 +328,15 @@ existente (500).
   NFR-02.
 
 **Completion criterion**
-Los 13 tests pasan; ningún cartón devuelto pertenece a un bingo con sorteo pasado; el Método 2
+Los 12 tests pasan; ningún cartón devuelto pertenece a un bingo con sorteo pasado; el Método 2
 nunca devuelve cartones de un bingo que no sea el del organizador pedido; ningún dato personal del
 organizador (CUIT/mail/teléfono) aparece en ninguna respuesta; más de 60 requests en 5 minutos
 desde la misma IP son rechazadas con 429 en ambos endpoints.
 
 ## Final verification
 
-`dotnet build`/`dotnet test` sobre `backend/BingoCart.sln` en verde, incluyendo los 24 tests
-automatizados nuevos de los Blocks 1-2 (11+13). Un visitante sin autenticar puede descubrir cartones
+`dotnet build`/`dotnet test` sobre `backend/BingoCart.sln` en verde, incluyendo los 23 tests
+automatizados nuevos de los Blocks 1-2 (11+12). Un visitante sin autenticar puede descubrir cartones
 al azar de cualquier bingo activo, o de un organizador específico con bingo activo, sin ver nunca
 cartones de bingos vencidos ni datos personales de los organizadores. Ningún frontend se toca en
 este ticket (confirmado backend-only por el PRD, mismo criterio que FEAT-003/FEAT-004/FEAT-005/

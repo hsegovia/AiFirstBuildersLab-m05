@@ -184,7 +184,7 @@ public class OrganizadorServiceTests
         var timeProvider = new Mock<TimeProvider>();
         timeProvider.Setup(t => t.GetUtcNow()).Returns(new DateTimeOffset(ahoraUtc));
 
-        var item = new DirectorioOrganizadorItem("Club Uno", "Bingo de prueba", ahoraUtc.AddDays(5));
+        var item = new DirectorioOrganizadorItem(Guid.NewGuid(), "Club Uno", "Bingo de prueba", ahoraUtc.AddDays(5));
         var directorioRepository = new Mock<IDirectorioRepository>();
         directorioRepository
             .Setup(r => r.ListarActivosAsync(ahoraUtc, 1, 20))

@@ -81,6 +81,10 @@ public sealed class ExceptionHandlingMiddleware
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "BingoConCompras");
         }
+        catch (OrganizadorNoEncontradoException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.NotFound, "OrganizadorNoEncontrado");
+        }
         catch (Exception ex)
         {
             // No controlada: nunca se expone el mensaje real (puede contener detalles internos) ni

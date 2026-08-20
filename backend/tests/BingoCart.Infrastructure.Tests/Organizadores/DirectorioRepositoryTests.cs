@@ -90,10 +90,12 @@ public sealed class DirectorioRepositoryTests : IAsyncLifetime
         Assert.Equal(2, resultado.Total);
         Assert.Equal(2, resultado.Items.Count);
         Assert.Contains(resultado.Items, i =>
+            i.Id == organizadorUno.Id &&
             i.NombreOrganizacion == "Club Uno" &&
             i.NombreEvento == bingoUno.NombreEvento &&
             i.FechaSorteoUtc == bingoUno.FechaSorteoUtc);
         Assert.Contains(resultado.Items, i =>
+            i.Id == organizadorDos.Id &&
             i.NombreOrganizacion == "Club Dos" &&
             i.NombreEvento == bingoDos.NombreEvento &&
             i.FechaSorteoUtc == bingoDos.FechaSorteoUtc);
@@ -173,12 +175,13 @@ public sealed class DirectorioRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ListarActivosAsync_ProyeccionResultante_NuncaExponeCamposMasAllaDeLosTresDelDto()
+    public async Task ListarActivosAsync_ProyeccionResultante_NuncaExponeCamposMasAllaDeLosCuatroDelDto()
     {
-        // Inspección estructural (no de valores): DirectorioOrganizadorItem solo declara
-        // NombreOrganizacion, NombreEvento y FechaSorteoUtc — es estructuralmente imposible que el
-        // repositorio devuelva CUIT/mail/teléfono, sin importar qué datos tenga el organizador
-        // sembrado. Valida NFR-02/AC-08 a nivel de infraestructura.
+        // Inspección estructural (no de valores): DirectorioOrganizadorItem solo declara Id,
+        // NombreOrganizacion, NombreEvento y FechaSorteoUtc (spec FEAT-008a, Block 1, agrega Id) —
+        // es estructuralmente imposible que el repositorio devuelva CUIT/mail/teléfono, sin
+        // importar qué datos tenga el organizador sembrado. Valida NFR-02/AC-08 a nivel de
+        // infraestructura; el `Id` agregado no es un dato sensible (no reabre la mitigación R-01).
         var ahoraUtc = DateTime.UtcNow;
         var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Con Datos Sensibles");
         var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(1), ahoraUtc);
@@ -195,7 +198,7 @@ public sealed class DirectorioRepositoryTests : IAsyncLifetime
             .ToList();
 
         Assert.Equal(
-            new[] { "NombreOrganizacion", "NombreEvento", "FechaSorteoUtc" },
+            new[] { "Id", "NombreOrganizacion", "NombreEvento", "FechaSorteoUtc" },
             propiedades);
         Assert.Single(resultado.Items);
     }
