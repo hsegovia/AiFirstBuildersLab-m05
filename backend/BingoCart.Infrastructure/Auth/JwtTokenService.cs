@@ -25,12 +25,16 @@ public sealed class JwtTokenService : IJwtTokenService
         _timeProvider = timeProvider;
     }
 
-    public TokenGenerado GenerarToken(Guid organizadorId, string mail)
+    public TokenGenerado GenerarToken(Guid userId, string mail, string rol)
     {
         var claims = new[]
         {
-            new Claim(ClaimTypes.NameIdentifier, organizadorId.ToString()),
-            new Claim(ClaimTypes.Email, mail)
+            new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+            new Claim(ClaimTypes.Email, mail),
+            // Claim corto "role" (spec FEAT-009a, Block 1) — JwtSecurityTokenHandler lo mapea a
+            // ClaimTypes.Role por default (DefaultInboundClaimTypeMap), sin configuración adicional
+            // en Program.cs, para que [Authorize(Roles = "...")] lo reconozca.
+            new Claim(ClaimTypes.Role, rol)
         };
 
         var signingCredentials = new SigningCredentials(

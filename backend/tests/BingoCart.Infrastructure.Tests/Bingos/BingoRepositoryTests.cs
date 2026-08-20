@@ -3,10 +3,15 @@ using System.Linq;
 using System.Threading.Tasks;
 using BingoCart.Application.Bingos;
 using BingoCart.Domain.Bingos;
+using BingoCart.Domain.Compras;
 using BingoCart.Infrastructure.Bingos;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
+
+// CompraCarton (Infrastructure.Data): fila de persistencia pura de CompraCartones, sembrada
+// directamente en varios tests de esta clase para simular "cartón ya vendido" sin necesitar
+// CompraRepository/Compra completos (spec FEAT-009a, Block 1).
 
 namespace BingoCart.Infrastructure.Tests.Bingos;
 
@@ -308,8 +313,11 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         Assert.Empty(cartonesRestantes);
     }
 
+    // Reemplaza el test "siempre false" (spec FEAT-009a, Block 1 — reemplaza
+    // BingoRepositoryTests.cs:312-321 según impact scan): TieneComprasRegistradasAsync ahora es una
+    // implementación real (EXISTS contra CompraCartones join Cartones por BingoId).
     [Fact]
-    public async Task TieneComprasRegistradasAsync_ConCualquierBingoId_SiempreDevuelveFalse()
+    public async Task TieneComprasRegistradasAsync_ConBingoSinNingunaCompra_DevuelveFalse()
     {
         var organizadorId = Guid.NewGuid();
         var ahoraUtc = DateTime.UtcNow;
@@ -317,12 +325,97 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         _context.Bingos.Add(bingo);
         await _context.SaveChangesAsync();
 
-        var resultadoConBingoRecienCreado = await _repository.TieneComprasRegistradasAsync(bingo.Id);
-        var resultadoConIdInexistente = await _repository.TieneComprasRegistradasAsync(Guid.NewGuid());
+        var resultado = await _repository.TieneComprasRegistradasAsync(bingo.Id);
 
-        Assert.False(resultadoConBingoRecienCreado);
-        Assert.False(resultadoConIdInexistente);
+        Assert.False(resultado);
     }
+
+    [Fact]
+    public async Task TieneComprasRegistradasAsync_ConBingoQueTieneAlMenosUnaFilaEnCompraCartones_DevuelveTrue()
+    {
+        var organizadorId = Guid.NewGuid();
+        var ahoraUtc = DateTime.UtcNow;
+        var bingo = NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc);
+        var carton = NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.Add(carton);
+        await _context.SaveChangesAsync();
+
+        var compra = SembrarCompraPendiente(organizadorId, Guid.NewGuid());
+        _context.Compras.Add(compra);
+        _context.CompraCartones.Add(new CompraCarton { CompraId = compra.Id, CartonId = carton.Id, PrecioUnitario = 100m });
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.TieneComprasRegistradasAsync(bingo.Id);
+
+        Assert.True(resultado);
+    }
+
+    [Fact]
+    public async Task ObtenerParaConfirmarCompraAsync_ConDosCartonIdDeOrganizadoresDistintos_DevuelveDatosCorrectosParaAmbosSinMezclarlos()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizadorUno = NuevoOrganizador(Guid.NewGuid(), "Club Confirmar Uno");
+        var organizadorDos = NuevoOrganizador(Guid.NewGuid(), "Club Confirmar Dos");
+        var bingoUno = NuevoBingo(organizadorUno.Id, ahoraUtc.AddDays(5), ahoraUtc);
+        var bingoDos = NuevoBingo(organizadorDos.Id, ahoraUtc.AddDays(6), ahoraUtc);
+        var cartonUno = NuevoCarton(bingoUno.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var cartonDos = NuevoCarton(bingoDos.Id, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+
+        _context.Users.AddRange(organizadorUno, organizadorDos);
+        _context.Bingos.AddRange(bingoUno, bingoDos);
+        _context.Cartones.AddRange(cartonUno, cartonDos);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ObtenerParaConfirmarCompraAsync(new[] { cartonUno.Id, cartonDos.Id });
+
+        Assert.Equal(2, resultado.Count);
+        Assert.Contains(resultado, r =>
+            r.CartonId == cartonUno.Id &&
+            r.BingoId == bingoUno.Id &&
+            r.OrganizadorId == organizadorUno.Id &&
+            r.NombreOrganizacion == "Club Confirmar Uno" &&
+            r.NombreEvento == bingoUno.NombreEvento);
+        Assert.Contains(resultado, r =>
+            r.CartonId == cartonDos.Id &&
+            r.BingoId == bingoDos.Id &&
+            r.OrganizadorId == organizadorDos.Id &&
+            r.NombreOrganizacion == "Club Confirmar Dos" &&
+            r.NombreEvento == bingoDos.NombreEvento);
+    }
+
+    [Fact]
+    public async Task ObtenerParaCarritoAsync_ConCartonQueYaTieneUnaFilaEnCompraCartones_DevuelveNullAunqueSuBingoSigaActivo()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Ya Vendido");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc, costoPorCarton: 120m);
+        var carton = NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.Add(carton);
+        await _context.SaveChangesAsync();
+
+        var compra = SembrarCompraPendiente(organizador.Id, Guid.NewGuid());
+        _context.Compras.Add(compra);
+        _context.CompraCartones.Add(new CompraCarton { CompraId = compra.Id, CartonId = carton.Id, PrecioUnitario = 120m });
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ObtenerParaCarritoAsync(carton.Id, ahoraUtc);
+
+        Assert.Null(resultado);
+    }
+
+    // Helper: fila mínima de `Compras` sembrada directamente (sin pasar por CompraRepository) para
+    // simular "ya hay una compra" en tests que solo necesitan la FK, no el flujo completo.
+    private static Compra SembrarCompraPendiente(Guid organizadorId, Guid compradorId) =>
+        Compra.Crear(
+            organizadorId,
+            compradorId,
+            new[] { new ItemCompra(Guid.NewGuid(), 100m) },
+            MedioPago.Efectivo,
+            DateTime.UtcNow);
 
     [Fact]
     public async Task ObtenerParaCarritoAsync_ConCartonDeBingoActivoConIdInexistenteYConBingoVencido_DevuelveDatosONullSegunCorresponda()

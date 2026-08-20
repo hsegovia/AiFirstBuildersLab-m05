@@ -1,5 +1,6 @@
 using BingoCart.Application.Bingos;
 using BingoCart.Application.Carritos.Dtos;
+using BingoCart.Application.Compras.Dtos;
 using BingoCart.Domain.Bingos;
 using BingoCart.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -54,10 +55,12 @@ public sealed class BingoRepository : IBingoRepository
         await _context.SaveChangesAsync();
     }
 
-    // Punto de extensión (spec FEAT-007, Block 1): la entidad `Compra` todavía no existe (ticket
-    // futuro de carrito/compra) — cuando exista, este es el único método a tocar para activar el
-    // chequeo real. Hasta entonces, ningún bingo se considera "con compras".
-    public Task<bool> TieneComprasRegistradasAsync(Guid bingoId) => Task.FromResult(false);
+    // Implementación real (spec FEAT-009a, Block 1) — reemplaza el `false` hardcodeado desde
+    // FEAT-007. EXISTS contra CompraCartones join Cartones por BingoId: un bingo "tiene compras" si
+    // al menos uno de sus cartones aparece en CompraCartones.
+    public Task<bool> TieneComprasRegistradasAsync(Guid bingoId) =>
+        _context.CompraCartones.AnyAsync(cc =>
+            _context.Cartones.Any(c => c.Id == cc.CartonId && c.BingoId == bingoId));
 
     public Task GuardarCambiosAsync() => _context.SaveChangesAsync();
 
@@ -69,8 +72,33 @@ public sealed class BingoRepository : IBingoRepository
         return _context.Cartones
             .Join(_context.Bingos, c => c.BingoId, b => b.Id, (c, b) => new { c, b })
             .Join(_context.Users, cb => cb.b.OrganizadorId, u => u.Id, (cb, u) => new { cb.c, cb.b, u })
-            .Where(x => x.c.Id == cartonId && x.b.FechaSorteoUtc > ahoraUtc)
-            .Select(x => new CartonParaCarrito(x.c.Id, x.b.Id, x.b.CostoPorCarton, x.u.NombreOrganizacion, x.b.NombreEvento))
+            .Where(x => x.c.Id == cartonId
+                && x.b.FechaSorteoUtc > ahoraUtc
+                // FR-07 (spec FEAT-009a, Block 1): un cartón ya vendido nunca puede volver a
+                // agregarse a un carrito, aunque su bingo siga activo.
+                && !_context.CompraCartones.Any(cc => cc.CartonId == x.c.Id))
+            // `!` seguro: `u` siempre proviene de `Bingo.OrganizadorId`, un organizador, que
+            // siempre completa `NombreOrganizacion` (mismo criterio que ObtenerParaConfirmarCompraAsync).
+            .Select(x => new CartonParaCarrito(x.c.Id, x.b.Id, x.b.CostoPorCarton, x.u.NombreOrganizacion!, x.b.NombreEvento))
             .FirstOrDefaultAsync();
+    }
+
+    // Spec FEAT-009a, Block 1: JOIN normal (LINQ) contra Cartones+Bingos+Users, sin filtro de
+    // "bingo activo" — a diferencia de ObtenerParaCarritoAsync, acá el cartón ya pasó la
+    // revalidación de reserva (RevalidarReservasAsync); si su bingo venció en el ínterin es un caso
+    // de borde aceptado, fuera de alcance de este ticket.
+    public async Task<IReadOnlyList<CartonParaConfirmarCompra>> ObtenerParaConfirmarCompraAsync(
+        IReadOnlyCollection<Guid> cartonIds)
+    {
+        return await _context.Cartones
+            .Where(c => cartonIds.Contains(c.Id))
+            .Join(_context.Bingos, c => c.BingoId, b => b.Id, (c, b) => new { c, b })
+            .Join(_context.Users, cb => cb.b.OrganizadorId, u => u.Id, (cb, u) => new { cb.c, cb.b, u })
+            // `NombreOrganizacion` es nullable en el esquema (comprador no lo completa), pero acá
+            // `u` siempre proviene de `Bingo.OrganizadorId` — un organizador, que sí lo completa
+            // siempre (`OrganizadorService.RegistrarAsync`, invariante nunca relajada por este
+            // ticket) — el `!` es seguro, no oculta un caso real de nulidad.
+            .Select(x => new CartonParaConfirmarCompra(x.c.Id, x.b.Id, x.b.OrganizadorId, x.u.NombreOrganizacion!, x.b.NombreEvento))
+            .ToListAsync();
     }
 }

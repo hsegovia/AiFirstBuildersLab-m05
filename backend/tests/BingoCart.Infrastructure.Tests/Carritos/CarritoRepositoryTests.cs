@@ -225,4 +225,130 @@ public sealed class CarritoRepositoryTests : IAsyncLifetime
             Assert.Empty(itemsUno);
         }
     }
+
+    // A partir de acá: tests de RevalidarReservasAsync/LiberarCarritoConfirmadoAsync (spec
+    // FEAT-009a, Block 1).
+
+    [Fact]
+    public async Task RevalidarReservasAsync_ConTodasLasReservasVigentes_DevuelveEsValidoTrueConLosPreciosCorrectos()
+    {
+        var sesionId = NuevaSesionId();
+        var cartonUno = Guid.NewGuid();
+        var cartonDos = Guid.NewGuid();
+        RegistrarClaves(sesionId, cartonUno, cartonDos);
+
+        await _repository.IntentarAgregarAsync(sesionId, cartonUno, 100m, TimeSpan.FromMinutes(5));
+        await _repository.IntentarAgregarAsync(sesionId, cartonDos, 200m, TimeSpan.FromMinutes(5));
+
+        var resultado = await _repository.RevalidarReservasAsync(sesionId);
+
+        Assert.True(resultado.EsValido);
+        Assert.Empty(resultado.CartonIdsInvalidos);
+        Assert.Equal(2, resultado.Items.Count);
+        Assert.Contains(resultado.Items, i => i.CartonId == cartonUno && i.PrecioUnitario == 100m);
+        Assert.Contains(resultado.Items, i => i.CartonId == cartonDos && i.PrecioUnitario == 200m);
+    }
+
+    [Fact]
+    public async Task RevalidarReservasAsync_ConUnaReservaYaExpirada_DevuelveEsValidoFalseConEseCartonIdInvalido()
+    {
+        var sesionId = NuevaSesionId();
+        var cartonVigente = Guid.NewGuid();
+        var cartonExpirado = Guid.NewGuid();
+        RegistrarClaves(sesionId, cartonVigente, cartonExpirado);
+
+        await _repository.IntentarAgregarAsync(sesionId, cartonVigente, 100m, TimeSpan.FromMinutes(5));
+        await _repository.IntentarAgregarAsync(sesionId, cartonExpirado, 100m, TimeSpan.FromMinutes(5));
+
+        // Borra directamente `reservado:carton:{cartonExpirado}` (sin pasar por
+        // IntentarAgregarAsync/TTL real) — mismo mecanismo que Block 3 usa para simular una reserva
+        // vencida sin esperar los 5 minutos reales. Simular con un TTL corto no sirve acá:
+        // ScriptIntentarAgregar refresca el TTL de TODAS las reservas del carrito a cada llamada
+        // (FR-07), así que un TTL corto en el segundo agregado también reduciría el del primero.
+        var db = _connectionMultiplexer.GetDatabase();
+        await db.KeyDeleteAsync($"reservado:carton:{cartonExpirado}");
+
+        var resultado = await _repository.RevalidarReservasAsync(sesionId);
+
+        Assert.False(resultado.EsValido);
+        Assert.Empty(resultado.Items);
+        Assert.Equal(new[] { cartonExpirado }, resultado.CartonIdsInvalidos);
+    }
+
+    [Fact]
+    public async Task RevalidarReservasAsync_NuncaBorraNingunaClave()
+    {
+        var sesionId = NuevaSesionId();
+        var cartonId = Guid.NewGuid();
+        RegistrarClaves(sesionId, cartonId);
+
+        await _repository.IntentarAgregarAsync(sesionId, cartonId, 100m, TimeSpan.FromMinutes(5));
+
+        var db = _connectionMultiplexer.GetDatabase();
+        var carritoExisteAntes = await db.KeyExistsAsync($"carrito:{sesionId}");
+        var reservadoExisteAntes = await db.KeyExistsAsync($"reservado:carton:{cartonId}");
+
+        await _repository.RevalidarReservasAsync(sesionId);
+
+        var carritoExisteDespues = await db.KeyExistsAsync($"carrito:{sesionId}");
+        var reservadoExisteDespues = await db.KeyExistsAsync($"reservado:carton:{cartonId}");
+
+        Assert.True(carritoExisteAntes);
+        Assert.True(reservadoExisteAntes);
+        Assert.True(carritoExisteDespues);
+        Assert.True(reservadoExisteDespues);
+    }
+
+    [Fact]
+    public async Task LiberarCarritoConfirmadoAsync_BorraElCarritoYTodasLasReservasPasadas()
+    {
+        var sesionId = NuevaSesionId();
+        var cartonUno = Guid.NewGuid();
+        var cartonDos = Guid.NewGuid();
+        RegistrarClaves(sesionId, cartonUno, cartonDos);
+
+        await _repository.IntentarAgregarAsync(sesionId, cartonUno, 100m, TimeSpan.FromMinutes(5));
+        await _repository.IntentarAgregarAsync(sesionId, cartonDos, 200m, TimeSpan.FromMinutes(5));
+
+        await _repository.LiberarCarritoConfirmadoAsync(sesionId, new[] { cartonUno, cartonDos });
+
+        var db = _connectionMultiplexer.GetDatabase();
+        Assert.False(await db.KeyExistsAsync($"carrito:{sesionId}"));
+        Assert.False(await db.KeyExistsAsync($"reservado:carton:{cartonUno}"));
+        Assert.False(await db.KeyExistsAsync($"reservado:carton:{cartonDos}"));
+    }
+
+    [Fact]
+    public async Task RevalidarReservasAsync_DosSesionesConcurrentesQueComparteUnCarton_CadaUnaVeInvalidoSoloElAjeno()
+    {
+        var sesionUno = NuevaSesionId();
+        var sesionDos = NuevaSesionId();
+        var cartonPropioDeUno = Guid.NewGuid();
+        var cartonCompartido = Guid.NewGuid();
+        RegistrarClaves(sesionUno, cartonPropioDeUno, cartonCompartido);
+        RegistrarClaves(sesionDos);
+
+        // El carrito de sesionUno reserva realmente `cartonCompartido` (queda como propietario en
+        // Redis); sesionDos solo lo tiene en SU hash de carrito (simulando una reserva ya perdida
+        // contra otra sesión) sin ser la propietaria real — mismo mecanismo que
+        // "reserva perdida"/expirada, sin esperar un TTL real.
+        await _repository.IntentarAgregarAsync(sesionUno, cartonPropioDeUno, 100m, TimeSpan.FromMinutes(5));
+        await _repository.IntentarAgregarAsync(sesionUno, cartonCompartido, 150m, TimeSpan.FromMinutes(5));
+
+        var db = _connectionMultiplexer.GetDatabase();
+        await db.HashSetAsync($"carrito:{sesionDos}", cartonCompartido.ToString(), "150");
+
+        var tareaUno = _repository.RevalidarReservasAsync(sesionUno);
+        var tareaDos = _repository.RevalidarReservasAsync(sesionDos);
+        var resultados = await Task.WhenAll(tareaUno, tareaDos);
+
+        var resultadoUno = resultados[0];
+        var resultadoDos = resultados[1];
+
+        Assert.True(resultadoUno.EsValido);
+        Assert.Contains(resultadoUno.Items, i => i.CartonId == cartonCompartido);
+
+        Assert.False(resultadoDos.EsValido);
+        Assert.Equal(new[] { cartonCompartido }, resultadoDos.CartonIdsInvalidos);
+    }
 }

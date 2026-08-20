@@ -1,4 +1,5 @@
 using BingoCart.Application.Carritos.Dtos;
+using BingoCart.Application.Compras.Dtos;
 using BingoCart.Domain.Bingos;
 
 namespace BingoCart.Application.Bingos;
@@ -45,10 +46,10 @@ public interface IBingoRepository
     Task EliminarAsync(Bingo bingo);
 
     /// <summary>
-    /// Indica si el bingo <paramref name="bingoId"/> tiene al menos una compra registrada. Punto de
-    /// extensión: hoy siempre devuelve <c>false</c> porque la entidad <c>Compra</c> todavía no existe
-    /// (ticket futuro de carrito/compra) — ver implementación en
-    /// <c>BingoCart.Infrastructure.Bingos.BingoRepository</c>.
+    /// Indica si el bingo <paramref name="bingoId"/> tiene al menos una compra registrada — implementado
+    /// vía <c>EXISTS</c> contra <c>CompraCartones</c> join <c>Cartones</c> por <c>BingoId</c> (spec
+    /// FEAT-009a, Block 1). Activa <c>BingoConComprasException</c> en <c>PUT</c>/<c>DELETE
+    /// /api/bingos/{id}</c> (FEAT-007) para bingos con al menos una compra.
     /// </summary>
     Task<bool> TieneComprasRegistradasAsync(Guid bingoId);
 
@@ -69,4 +70,14 @@ public interface IBingoRepository
     /// <c>BingoNoEncontradoException</c>).
     /// </summary>
     Task<CartonParaCarrito?> ObtenerParaCarritoAsync(Guid cartonId, DateTime ahoraUtc);
+
+    /// <summary>
+    /// Devuelve, para cada <c>cartonId</c> de <paramref name="cartonIds"/> cuyo <c>Bingo</c> todavía
+    /// existe, sus datos de organizador (spec FEAT-009a, Block 1) — usado al confirmar una compra,
+    /// después de que <c>RevalidarReservasAsync</c> (Redis) ya confirmó la reserva. Sin filtro de
+    /// "bingo activo" (a diferencia de <see cref="ObtenerParaCarritoAsync"/>): acá el cartón ya pasó
+    /// la revalidación de reserva; si su bingo venció en el ínterin es un caso de borde aceptado,
+    /// fuera de alcance de este ticket.
+    /// </summary>
+    Task<IReadOnlyList<CartonParaConfirmarCompra>> ObtenerParaConfirmarCompraAsync(IReadOnlyCollection<Guid> cartonIds);
 }

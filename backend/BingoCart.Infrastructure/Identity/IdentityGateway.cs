@@ -1,15 +1,20 @@
+using BingoCart.Application.Compradores;
 using BingoCart.Application.Organizadores;
+using BingoCart.Domain.Compradores;
 using BingoCart.Domain.Organizadores;
 using Microsoft.AspNetCore.Identity;
 
 namespace BingoCart.Infrastructure.Identity;
 
 /// <summary>
-/// Única clase de Infrastructure que conoce <see cref="UserManager{TUser}"/>. Implementa el puerto
-/// <see cref="IIdentityGateway"/> (Application, Block 3) para que `OrganizadorService` nunca
-/// dependa del tipo concreto de Identity.
+/// Única clase de Infrastructure que conoce <see cref="UserManager{TUser}"/>. Implementa DOS
+/// puertos sobre la misma instancia — <see cref="IIdentityGateway"/> (Application, organizador) y
+/// <see cref="ICompradorIdentityGateway"/> (Application, comprador, spec FEAT-009a) — decisión de
+/// PLAN: ambos envuelven el mismo <c>UserManager&lt;ApplicationUser&gt;</c>/
+/// <c>SignInManager&lt;ApplicationUser&gt;</c>, evitando duplicar el wiring de Identity en dos clases
+/// de infraestructura casi idénticas.
 /// </summary>
-public sealed class IdentityGateway : IIdentityGateway
+public sealed class IdentityGateway : IIdentityGateway, ICompradorIdentityGateway
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly SignInManager<ApplicationUser> _signInManager;
@@ -73,5 +78,39 @@ public sealed class IdentityGateway : IIdentityGateway
         // Cualquier otro resultado (password incorrecta, IsNotAllowed, etc.) se trata como
         // credenciales inválidas, sin distinguir causa (AC-02).
         return new ResultadoAutenticacion(EstadoAutenticacion.CredencialesInvalidas, null);
+    }
+
+    // Implementación de ICompradorIdentityGateway (spec FEAT-009a, Block 1) — mismo UserManager que
+    // arriba, sin ningún estado ni wiring adicional.
+
+    public async Task<IdentityGatewayResult> CrearUsuarioAsync(Comprador comprador, string password)
+    {
+        var usuario = new ApplicationUser
+        {
+            // Mismo Id que la entidad de Domain, mismo criterio que el organizador.
+            Id = comprador.Id,
+            UserName = comprador.Mail,
+            Email = comprador.Mail,
+            EmailConfirmed = true,
+            Apellido = comprador.Apellido,
+            Nombre = comprador.Nombre,
+            Cuit = comprador.Cuit,
+        };
+
+        var resultado = await _userManager.CreateAsync(usuario, password);
+
+        if (!resultado.Succeeded)
+        {
+            var erroresCreacion = resultado.Errors.Select(error => error.Description).ToList();
+            return new IdentityGatewayResult(false, erroresCreacion);
+        }
+
+        // Primer uso real de AspNetRoles/AspNetUserRoles del proyecto (decisión de PLAN, spec
+        // FEAT-009a) — el rol "Comprador" ya fue sembrado idempotentemente al arrancar (Program.cs,
+        // Block 3).
+        var resultadoRol = await _userManager.AddToRoleAsync(usuario, "Comprador");
+
+        var errores = resultadoRol.Errors.Select(error => error.Description).ToList();
+        return new IdentityGatewayResult(resultadoRol.Succeeded, errores);
     }
 }

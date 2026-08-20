@@ -1,5 +1,6 @@
 using System;
 using BingoCart.Domain.Bingos;
+using BingoCart.Domain.Compras;
 using BingoCart.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -25,15 +26,27 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
 
     public DbSet<Carton> Cartones => Set<Carton>();
 
+    public DbSet<Compra> Compras => Set<Compra>();
+
+    // Entidad de persistencia pura (Infrastructure, no Domain) — decisión de PLAN, spec FEAT-009a
+    // Block 1: `Compra.Items` (Domain, `IReadOnlyList<ItemCompra>` inmutable) no se mapea como
+    // navegación EF (una colección de solo lectura de un `sealed record` no ofrece un método `Add`
+    // que EF Core pueda usar al materializar). En vez de eso, `CompraCartones` es una tabla
+    // independiente con FK lógica a `Compras`, mismo criterio ya usado para `Bingo`/`Carton`
+    // (`Carton` tampoco es una colección navegable de `Bingo`, es un DbSet propio).
+    public DbSet<CompraCarton> CompraCartones => Set<CompraCarton>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
 
         builder.Entity<ApplicationUser>(entity =>
         {
+            // Nullable (spec FEAT-009a, Block 1): el comprador no completa estos dos campos — la
+            // obligatoriedad para organizador se sigue validando en `Organizador.Crear`/
+            // `OrganizadorService.RegistrarAsync`, nunca a nivel de columna.
             entity.Property(u => u.NombreOrganizacion)
-                .HasMaxLength(200)
-                .IsRequired();
+                .HasMaxLength(200);
 
             entity.Property(u => u.Cuit)
                 .HasMaxLength(11)
@@ -43,8 +56,15 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
                 .IsUnique();
 
             entity.Property(u => u.Telefono)
-                .HasMaxLength(20)
-                .IsRequired();
+                .HasMaxLength(20);
+
+            // Nuevas (spec FEAT-009a, Block 1): usadas solo por comprador — nullable por el mismo
+            // motivo, el organizador no las completa.
+            entity.Property(u => u.Apellido)
+                .HasMaxLength(200);
+
+            entity.Property(u => u.Nombre)
+                .HasMaxLength(200);
         });
 
         builder.Entity<Bingo>(entity =>
@@ -117,6 +137,46 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
             // duplicado silenciosamente.
             entity.HasIndex(c => new { c.BingoId, c.Numeros })
                 .IsUnique();
+        });
+
+        builder.Entity<Compra>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+
+            // `Compra.Items` (Domain) NO se mapea acá — ver comentario de `DbSet<CompraCarton>`
+            // arriba. Sin este `Ignore`, la convención de EF Core intentaría descubrirla como
+            // navegación (es una colección de un tipo no primitivo) y fallaría al construir el
+            // modelo, porque `IReadOnlyList<ItemCompra>` no expone ningún método para que EF Core
+            // agregue elementos al materializar.
+            entity.Ignore(c => c.Items);
+
+            // FKs LÓGICAS hacia AspNetUsers.Id (mismo criterio que `Bingo.OrganizadorId`): ni
+            // `Organizador` ni `Comprador` se persisten como agregados propios, solo se indexan los
+            // Guid para las consultas de este ticket (agrupación por organizador, "mis compras" de
+            // un comprador en tickets futuros).
+            entity.HasIndex(c => c.OrganizadorId);
+            entity.HasIndex(c => c.CompradorId);
+        });
+
+        builder.Entity<CompraCarton>(entity =>
+        {
+            entity.ToTable("CompraCartones");
+
+            // `CartonId` como PK (en vez de compuesta con `CompraId`): un cartón nunca puede
+            // pertenecer a más de una compra en toda la vida del sistema (NFR-01/RNF-03) — la PK
+            // expresa esa invariante directamente, sin necesitar un índice `UNIQUE` adicional.
+            entity.HasKey(cc => cc.CartonId);
+
+            entity.Property(cc => cc.PrecioUnitario)
+                .HasColumnType("decimal(10,2)");
+
+            // FK física con borrado en cascada: una fila de `CompraCartones` sin su `Compra` no
+            // tiene sentido de dominio, mismo criterio ya usado para `Carton`/`Bingo`.
+            entity.HasOne<Compra>()
+                .WithMany()
+                .HasForeignKey(cc => cc.CompraId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
         });
     }
 }
