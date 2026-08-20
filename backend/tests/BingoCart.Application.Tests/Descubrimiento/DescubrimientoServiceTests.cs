@@ -34,7 +34,7 @@ public class DescubrimientoServiceTests
 
         var repository = new Mock<IDescubrimientoRepository>();
         repository
-            .Setup(r => r.ObtenerAleatoriosGlobalAsync(It.IsAny<DateTime>(), 5))
+            .Setup(r => r.ObtenerAleatoriosGlobalAsync(It.IsAny<DateTime>(), 5, It.IsAny<IReadOnlyCollection<Guid>>()))
             .ReturnsAsync(new List<Carton> { cartonUno, cartonDos });
         repository
             .Setup(r => r.ObtenerResumenBingosAsync(It.Is<IReadOnlyCollection<Guid>>(
@@ -67,7 +67,7 @@ public class DescubrimientoServiceTests
     {
         var repository = new Mock<IDescubrimientoRepository>();
         repository
-            .Setup(r => r.ObtenerAleatoriosGlobalAsync(It.IsAny<DateTime>(), 5))
+            .Setup(r => r.ObtenerAleatoriosGlobalAsync(It.IsAny<DateTime>(), 5, It.IsAny<IReadOnlyCollection<Guid>>()))
             .ReturnsAsync(Array.Empty<Carton>());
 
         var service = CrearService(repository);
@@ -111,7 +111,7 @@ public class DescubrimientoServiceTests
 
         Assert.Empty(response);
         repository.Verify(
-            r => r.ObtenerAleatoriosDeBingoAsync(It.IsAny<Guid>(), It.IsAny<int>()),
+            r => r.ObtenerAleatoriosDeBingoAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<IReadOnlyCollection<Guid>>()),
             Times.Never());
     }
 
@@ -128,7 +128,7 @@ public class DescubrimientoServiceTests
             .Setup(r => r.ObtenerBingoActivoDeOrganizadorAsync(OrganizadorId, It.IsAny<DateTime>()))
             .ReturnsAsync((Guid?)bingoId);
         repository
-            .Setup(r => r.ObtenerAleatoriosDeBingoAsync(bingoId, 5))
+            .Setup(r => r.ObtenerAleatoriosDeBingoAsync(bingoId, 5, It.IsAny<IReadOnlyCollection<Guid>>()))
             .ReturnsAsync(new List<Carton> { carton });
         repository
             .Setup(r => r.ObtenerResumenBingosAsync(It.Is<IReadOnlyCollection<Guid>>(

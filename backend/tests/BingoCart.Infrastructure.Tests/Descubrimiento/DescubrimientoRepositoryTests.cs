@@ -109,7 +109,7 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         _context.Entry(bingoVencido).Property(nameof(Bingo.FechaSorteoUtc)).CurrentValue = ahoraUtc.AddDays(-1);
         await _context.SaveChangesAsync();
 
-        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5);
+        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
 
         Assert.All(resultado, c => Assert.True(c.BingoId == bingoUno.Id || c.BingoId == bingoDos.Id));
         Assert.DoesNotContain(resultado, c => c.BingoId == bingoVencido.Id);
@@ -127,7 +127,7 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         _context.Cartones.AddRange(NuevosCartones(bingo.Id, 3));
         await _context.SaveChangesAsync();
 
-        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5);
+        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
 
         Assert.Equal(3, resultado.Count);
     }
@@ -137,7 +137,7 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
     {
         var ahoraUtc = DateTime.UtcNow;
 
-        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5);
+        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
 
         Assert.Empty(resultado);
     }
@@ -154,7 +154,7 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         _context.Cartones.AddRange(NuevosCartones(bingo.Id, 9));
         await _context.SaveChangesAsync();
 
-        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5);
+        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
 
         Assert.Equal(5, resultado.Select(c => c.Id).Distinct().Count());
     }
@@ -211,7 +211,7 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         _context.Cartones.AddRange(NuevosCartones(otroBingo.Id, 3));
         await _context.SaveChangesAsync();
 
-        var resultado = await _repository.ObtenerAleatoriosDeBingoAsync(bingo.Id, cantidad: 5);
+        var resultado = await _repository.ObtenerAleatoriosDeBingoAsync(bingo.Id, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
 
         Assert.Equal(5, resultado.Count);
         Assert.All(resultado, c => Assert.Equal(bingo.Id, c.BingoId));
@@ -229,7 +229,7 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         _context.Cartones.AddRange(NuevosCartones(bingo.Id, 2));
         await _context.SaveChangesAsync();
 
-        var resultado = await _repository.ObtenerAleatoriosDeBingoAsync(bingo.Id, cantidad: 5);
+        var resultado = await _repository.ObtenerAleatoriosDeBingoAsync(bingo.Id, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
 
         Assert.Equal(2, resultado.Count);
     }
@@ -284,7 +284,7 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         var idsAcumulados = new HashSet<Guid>();
         for (var i = 0; i < 5; i++)
         {
-            var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5);
+            var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
             foreach (var carton in resultado)
             {
                 idsAcumulados.Add(carton.Id);
@@ -292,5 +292,46 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         }
 
         Assert.True(idsAcumulados.Count > 5, $"Se esperaban más de 5 cartones distintos entre las 5 corridas, se obtuvieron {idsAcumulados.Count}.");
+    }
+
+    // Extensión de FEAT-008a (spec FEAT-008b, Block 2): `excluirCartonIds` como último parámetro,
+    // usado por "nueva tanda" del carrito para no repetir cartones ya agregados/descartados.
+    [Fact]
+    public async Task ObtenerAleatoriosGlobalAsync_ConExcluirCartonIdsConteniendoDosDeCincoElegibles_NuncaLosDevuelve()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Con Exclusion");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc);
+        var cartones = NuevosCartones(bingo.Id, 5);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.AddRange(cartones);
+        await _context.SaveChangesAsync();
+
+        var excluidos = new[] { cartones[0].Id, cartones[1].Id };
+
+        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5, excluirCartonIds: excluidos);
+
+        Assert.Equal(3, resultado.Count);
+        Assert.DoesNotContain(resultado, c => c.Id == cartones[0].Id);
+        Assert.DoesNotContain(resultado, c => c.Id == cartones[1].Id);
+    }
+
+    [Fact]
+    public async Task ObtenerAleatoriosGlobalAsync_ConExcluirCartonIdsVacia_DevuelveTodosLosCartonesElegiblesSinFiltrarNinguno()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Sin Exclusion");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.AddRange(NuevosCartones(bingo.Id, 3));
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
+
+        Assert.Equal(3, resultado.Count);
     }
 }

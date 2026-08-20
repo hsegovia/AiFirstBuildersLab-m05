@@ -5,6 +5,7 @@ using BingoCart.Application.Bingos;
 using BingoCart.Domain.Bingos;
 using BingoCart.Infrastructure.Bingos;
 using BingoCart.Infrastructure.Data;
+using BingoCart.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace BingoCart.Infrastructure.Tests.Bingos;
@@ -47,17 +48,31 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         await _context.DisposeAsync();
     }
 
-    private static Bingo NuevoBingo(Guid organizadorId, DateTime fechaSorteoUtc, DateTime ahoraUtc) =>
+    private static Bingo NuevoBingo(Guid organizadorId, DateTime fechaSorteoUtc, DateTime ahoraUtc, decimal costoPorCarton = 100m) =>
         Bingo.Crear(
             nombreEvento: "Bingo de prueba",
             fechaSorteoUtc: fechaSorteoUtc,
             cantidadCartones: 10,
-            costoPorCarton: 100m,
+            costoPorCarton: costoPorCarton,
             organizadorId: organizadorId,
             ahoraUtc: ahoraUtc);
 
     private static Carton NuevoCarton(Guid bingoId, params int[] numeros) =>
         Carton.Crear(bingoId, numeros);
+
+    // ObtenerParaCarritoAsync (spec FEAT-008b, Block 2) hace un JOIN real contra AppDbContext.Users
+    // para NombreOrganizacion — a diferencia del resto de tests de esta clase (Bingo.OrganizadorId
+    // es una FK lógica, sin fila real de ApplicationUser necesaria), este helper crea una fila real.
+    // Cuit único requerido por el índice único de AppDbContext (`HasIndex(u => u.Cuit).IsUnique()`).
+    private static ApplicationUser NuevoOrganizador(Guid id, string nombreOrganizacion) => new()
+    {
+        Id = id,
+        UserName = $"{id}@example.com",
+        Email = $"{id}@example.com",
+        NombreOrganizacion = nombreOrganizacion,
+        Cuit = id.ToString("N")[..11],
+        Telefono = "+54 11 4444-5555",
+    };
 
     [Fact]
     public async Task TieneBingoActivoAsync_ConBingoDeFechaSorteoFutura_DevuelveTrue()
@@ -307,5 +322,39 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
 
         Assert.False(resultadoConBingoRecienCreado);
         Assert.False(resultadoConIdInexistente);
+    }
+
+    [Fact]
+    public async Task ObtenerParaCarritoAsync_ConCartonDeBingoActivoConIdInexistenteYConBingoVencido_DevuelveDatosONullSegunCorresponda()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizadorActivo = NuevoOrganizador(Guid.NewGuid(), "Club Activo Carrito");
+        var organizadorVencido = NuevoOrganizador(Guid.NewGuid(), "Club Vencido Carrito");
+        var bingoActivo = NuevoBingo(organizadorActivo.Id, ahoraUtc.AddDays(5), ahoraUtc, costoPorCarton: 150m);
+        var bingoVencido = NuevoBingo(organizadorVencido.Id, ahoraUtc.AddDays(5), ahoraUtc);
+
+        _context.Users.AddRange(organizadorActivo, organizadorVencido);
+        _context.Bingos.AddRange(bingoActivo, bingoVencido);
+        var cartonActivo = NuevoCarton(bingoActivo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var cartonVencido = NuevoCarton(bingoVencido.Id, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+        _context.Cartones.AddRange(cartonActivo, cartonVencido);
+        await _context.SaveChangesAsync();
+
+        _context.Entry(bingoVencido).Property(nameof(Bingo.FechaSorteoUtc)).CurrentValue = ahoraUtc.AddDays(-1);
+        await _context.SaveChangesAsync();
+
+        var resultadoActivo = await _repository.ObtenerParaCarritoAsync(cartonActivo.Id, ahoraUtc);
+        var resultadoInexistente = await _repository.ObtenerParaCarritoAsync(Guid.NewGuid(), ahoraUtc);
+        var resultadoVencido = await _repository.ObtenerParaCarritoAsync(cartonVencido.Id, ahoraUtc);
+
+        Assert.NotNull(resultadoActivo);
+        Assert.Equal(cartonActivo.Id, resultadoActivo!.CartonId);
+        Assert.Equal(bingoActivo.Id, resultadoActivo.BingoId);
+        Assert.Equal(150m, resultadoActivo.PrecioUnitario);
+        Assert.Equal("Club Activo Carrito", resultadoActivo.NombreOrganizacion);
+        Assert.Equal(bingoActivo.NombreEvento, resultadoActivo.NombreEvento);
+
+        Assert.Null(resultadoInexistente);
+        Assert.Null(resultadoVencido);
     }
 }

@@ -1,3 +1,4 @@
+using BingoCart.Application.Carritos.Dtos;
 using BingoCart.Domain.Bingos;
 
 namespace BingoCart.Application.Bingos;
@@ -58,4 +59,14 @@ public interface IBingoRepository
     /// mutación.
     /// </summary>
     Task GuardarCambiosAsync();
+
+    /// <summary>
+    /// Devuelve el cartón <paramref name="cartonId"/> junto con <c>CostoPorCarton</c>/
+    /// <c>NombreEvento</c>/nombre de organización de su bingo, SOLO si ese bingo sigue activo
+    /// (<c>FechaSorteoUtc</c> posterior a <paramref name="ahoraUtc"/>, mismo criterio ya usado en
+    /// FEAT-005/007/008a) — spec FEAT-008b, Block 2. <c>null</c> si el cartón no existe o su bingo
+    /// ya venció, sin distinguir entre esos dos casos (mismo criterio de no-enumeración ya usado en
+    /// <c>BingoNoEncontradoException</c>).
+    /// </summary>
+    Task<CartonParaCarrito?> ObtenerParaCarritoAsync(Guid cartonId, DateTime ahoraUtc);
 }

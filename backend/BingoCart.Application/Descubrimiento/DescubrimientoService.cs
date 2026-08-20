@@ -27,7 +27,9 @@ public sealed class DescubrimientoService : IDescubrimientoService
     {
         var ahoraUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
-        var cartones = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, CantidadPorTanda);
+        // Array.Empty<Guid>() (spec FEAT-008b, Block 2): este método no necesita excluir nada — el
+        // parámetro nuevo es para "nueva tanda" del carrito, sin cambio de comportamiento acá.
+        var cartones = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, CantidadPorTanda, Array.Empty<Guid>());
         if (cartones.Count == 0)
         {
             // Sin cartones elegibles: no tiene sentido resolver resúmenes de bingos que no van a
@@ -59,7 +61,7 @@ public sealed class DescubrimientoService : IDescubrimientoService
             return Array.Empty<CartonDescubiertoResponse>();
         }
 
-        var cartones = await _repository.ObtenerAleatoriosDeBingoAsync(bingoId.Value, CantidadPorTanda);
+        var cartones = await _repository.ObtenerAleatoriosDeBingoAsync(bingoId.Value, CantidadPorTanda, Array.Empty<Guid>());
 
         // Siempre 0 o 1 elemento: un único bingoId ya conocido, no una lista paginada.
         var resumenes = await _repository.ObtenerResumenBingosAsync(new[] { bingoId.Value });

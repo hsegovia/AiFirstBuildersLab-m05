@@ -8,6 +8,19 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-008b**: Carrito de compras — `POST /api/carrito/cartones/{cartonId}` (agregar),
+  `DELETE /api/carrito/cartones/{cartonId}` (quitar, idempotente), `GET /api/carrito` (ver total y
+  monto), `POST /api/carrito/tandas/nueva` (descartar y pedir una nueva tanda sin repetir cartones ya
+  agregados o descartados en la sesión), todos públicos, identificados por una sesión anónima
+  (cookie `bingocart_carrito`, token CSPRNG de 256 bits, sin registro ni login). Primer uso de Redis
+  del proyecto: todo el estado del carrito vive ahí (nunca en `Carton`, que sigue inmutable), con
+  reserva de 5 minutos por carrito completo que se reinicia en cada agregado y se libera sola por
+  TTL — reserva atómica entre sesiones concurrentes resuelta con un script Lua (`EVAL`), sin que dos
+  sesiones puedan reservar el mismo cartón. `IDescubrimientoRepository` (FEAT-008a) extendido con
+  exclusión de cartones ya agregados/descartados. Rate limiting de 60 requests/5 min por IP;
+  `cartonIdsDescartados` limitado a 50 elementos por request (hallazgo de SAST, evita un `NOT IN`
+  de SQL desproporcionado). Backend-only, sin pantalla de carrito en el frontend todavía.
+
 - **FEAT-008a**: Descubrimiento público de cartones — `GET /api/cartones/descubrimiento` (5
   cartones aleatorios de cualquier bingo activo) y `GET /api/cartones/organizador/{organizadorId}`
   (5 cartones aleatorios del bingo activo de un organizador), ambos públicos, sin autenticación.

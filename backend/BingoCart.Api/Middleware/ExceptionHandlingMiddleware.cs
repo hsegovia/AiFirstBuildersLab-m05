@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using BingoCart.Domain.Auth.Exceptions;
 using BingoCart.Domain.Bingos.Exceptions;
+using BingoCart.Domain.Carritos.Exceptions;
 using BingoCart.Domain.Common;
 using BingoCart.Domain.Organizadores.Exceptions;
 
@@ -84,6 +85,18 @@ public sealed class ExceptionHandlingMiddleware
         catch (OrganizadorNoEncontradoException ex)
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.NotFound, "OrganizadorNoEncontrado");
+        }
+        catch (CartonInexistenteException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.NotFound, "CartonInexistente");
+        }
+        catch (CartonYaReservadoException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "CartonYaReservado");
+        }
+        catch (CantidadDescartadosExcedeLimiteException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "CantidadDescartadosExcedeLimite");
         }
         catch (Exception ex)
         {

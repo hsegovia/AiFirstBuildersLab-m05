@@ -1,4 +1,5 @@
 using BingoCart.Application.Bingos;
+using BingoCart.Application.Carritos.Dtos;
 using BingoCart.Domain.Bingos;
 using BingoCart.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -59,4 +60,17 @@ public sealed class BingoRepository : IBingoRepository
     public Task<bool> TieneComprasRegistradasAsync(Guid bingoId) => Task.FromResult(false);
 
     public Task GuardarCambiosAsync() => _context.SaveChangesAsync();
+
+    // Spec FEAT-008b, Block 2: JOIN normal (LINQ, no SQL crudo) contra Cartones+Bingos+Users, mismo
+    // patrón que DescubrimientoRepository.ObtenerResumenBingosAsync. `null` sin distinguir "cartón
+    // inexistente" de "bingo vencido" — mismo criterio ya usado en BingoNoEncontradoException.
+    public Task<CartonParaCarrito?> ObtenerParaCarritoAsync(Guid cartonId, DateTime ahoraUtc)
+    {
+        return _context.Cartones
+            .Join(_context.Bingos, c => c.BingoId, b => b.Id, (c, b) => new { c, b })
+            .Join(_context.Users, cb => cb.b.OrganizadorId, u => u.Id, (cb, u) => new { cb.c, cb.b, u })
+            .Where(x => x.c.Id == cartonId && x.b.FechaSorteoUtc > ahoraUtc)
+            .Select(x => new CartonParaCarrito(x.c.Id, x.b.Id, x.b.CostoPorCarton, x.u.NombreOrganizacion, x.b.NombreEvento))
+            .FirstOrDefaultAsync();
+    }
 }

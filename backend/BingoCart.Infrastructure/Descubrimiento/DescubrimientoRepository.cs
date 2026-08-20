@@ -11,11 +11,15 @@ namespace BingoCart.Infrastructure.Descubrimiento;
 /// contra <see cref="AppDbContext"/> — capa de infraestructura pura, sin decisiones de negocio (qué
 /// es "activo" ya viene resuelto por el filtro SQL explícito; cuántos cartones pedir lo decide
 /// Application en Block 2). Primer punto del proyecto que hace selección aleatoria a nivel de base
-/// de datos: <c>ObtenerAleatoriosGlobalAsync</c>/<c>ObtenerAleatoriosDeBingoAsync</c> usan
-/// <c>FromSqlInterpolated</c> con <c>ORDER BY NEWID()</c> (SQL Server) — nunca <c>FromSqlRaw</c>
-/// con concatenación de string, ni <c>.OrderBy(_ => Guid.NewGuid())</c> (no traducible a SQL por EF
-/// Core) (decisión de PLAN, ver spec). <c>ObtenerResumenBingosAsync</c> usa LINQ normal con un JOIN
-/// a <c>Users</c>, mismo patrón que <c>DirectorioRepository</c> (FEAT-005).
+/// de datos: <c>ObtenerAleatoriosGlobalAsync</c>/<c>ObtenerAleatoriosDeBingoAsync</c> usan SQL crudo
+/// con <c>ORDER BY NEWID()</c> (SQL Server) — nunca <c>.OrderBy(_ => Guid.NewGuid())</c> (no
+/// traducible a SQL por EF Core) (decisión de PLAN, ver spec). Desde FEAT-008b (Block 2), la
+/// cláusula opcional <c>NOT IN (...)</c> de exclusión no puede armarse con <c>FromSqlInterpolated</c>
+/// (cada hueco se parametriza como UN único valor, no como una lista) — usan <c>FromSqlRaw</c> con
+/// los parámetros propios (<c>cantidad</c>/<c>ahoraUtc</c>/<c>bingoId</c>) vía sus placeholders
+/// <c>{0}</c>/<c>{1}</c>, concatenando (no interpolando con <c>$"..."</c>, para no disparar el
+/// analizador EF1002) el texto ya validado de la cláusula de exclusión. <c>ObtenerResumenBingosAsync</c>
+/// usa LINQ normal con un JOIN a <c>Users</c>, mismo patrón que <c>DirectorioRepository</c> (FEAT-005).
 /// </summary>
 public sealed class DescubrimientoRepository : IDescubrimientoRepository
 {
@@ -26,15 +30,31 @@ public sealed class DescubrimientoRepository : IDescubrimientoRepository
         _context = context;
     }
 
-    public async Task<IReadOnlyList<Carton>> ObtenerAleatoriosGlobalAsync(DateTime ahoraUtc, int cantidad)
+    public async Task<IReadOnlyList<Carton>> ObtenerAleatoriosGlobalAsync(
+        DateTime ahoraUtc, int cantidad, IReadOnlyCollection<Guid> excluirCartonIds)
     {
+        // La cláusula de exclusión (spec FEAT-008b, Block 2) no puede armarse como un hueco más de
+        // FromSqlInterpolated: cada `{}` de FromSqlInterpolated se parametriza como UN único valor,
+        // así que un `string.Join(",", excluirCartonIds)` interpolado ahí terminaría comparando
+        // `c.Id` (uniqueidentifier) contra un solo parámetro string con comas — SQL Server no puede
+        // convertir eso a GUID. Por eso se arma el texto de la cláusula en C# (solo con `Guid.
+        // ToString()`, que nunca produce comillas ni metacaracteres SQL — sin riesgo de inyección) y
+        // se concatena directo al SQL, mientras `cantidad`/`ahoraUtc` siguen yendo parametrizados
+        // vía los placeholders `{0}`/`{1}` de FromSqlRaw.
+        var clausulaExclusion = ConstruirClausulaExclusion(excluirCartonIds);
+
+        // Concatenación (no interpolación de C#) a propósito: `FromSqlRaw` con un string
+        // interpolado dispara el analizador EF1002 (no distingue un hueco seguro de uno inseguro).
+        // `{0}`/`{1}` siguen siendo los placeholders propios de `FromSqlRaw`, parametrizados por EF
+        // Core — `clausulaExclusion` es texto ya validado (solo GUIDs), no una interpolación.
+        var sql = "SELECT TOP ({0}) c.* " +
+                   "FROM Cartones c " +
+                   "INNER JOIN Bingos b ON b.Id = c.BingoId " +
+                   "WHERE b.FechaSorteoUtc > {1} " + clausulaExclusion + " " +
+                   "ORDER BY NEWID()";
+
         return await _context.Cartones
-            .FromSqlInterpolated($@"
-                SELECT TOP ({cantidad}) c.*
-                FROM Cartones c
-                INNER JOIN Bingos b ON b.Id = c.BingoId
-                WHERE b.FechaSorteoUtc > {ahoraUtc}
-                ORDER BY NEWID()")
+            .FromSqlRaw(sql, cantidad, ahoraUtc)
             .AsNoTracking()
             .ToListAsync();
     }
@@ -52,16 +72,34 @@ public sealed class DescubrimientoRepository : IDescubrimientoRepository
             .FirstOrDefaultAsync();
     }
 
-    public async Task<IReadOnlyList<Carton>> ObtenerAleatoriosDeBingoAsync(Guid bingoId, int cantidad)
+    public async Task<IReadOnlyList<Carton>> ObtenerAleatoriosDeBingoAsync(
+        Guid bingoId, int cantidad, IReadOnlyCollection<Guid> excluirCartonIds)
     {
+        var clausulaExclusion = ConstruirClausulaExclusion(excluirCartonIds);
+
+        var sql = "SELECT TOP ({0}) c.* " +
+                   "FROM Cartones c " +
+                   "WHERE c.BingoId = {1} " + clausulaExclusion + " " +
+                   "ORDER BY NEWID()";
+
         return await _context.Cartones
-            .FromSqlInterpolated($@"
-                SELECT TOP ({cantidad}) c.*
-                FROM Cartones c
-                WHERE c.BingoId = {bingoId}
-                ORDER BY NEWID()")
+            .FromSqlRaw(sql, cantidad, bingoId)
             .AsNoTracking()
             .ToListAsync();
+    }
+
+    // Vacía → sin cláusula (evita un `NOT IN ()` inválido en SQL Server, decisión de PLAN). No
+    // vacía → GUIDs formateados como literales entre comillas simples; seguro porque `Guid.
+    // ToString()` (formato "D" por defecto) solo produce dígitos hexadecimales y guiones.
+    private static string ConstruirClausulaExclusion(IReadOnlyCollection<Guid> excluirCartonIds)
+    {
+        if (excluirCartonIds.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var idsFormateados = string.Join(",", excluirCartonIds.Select(id => $"'{id}'"));
+        return $"AND c.Id NOT IN ({idsFormateados})";
     }
 
     public async Task<IReadOnlyList<BingoResumen>> ObtenerResumenBingosAsync(IReadOnlyCollection<Guid> bingoIds)
