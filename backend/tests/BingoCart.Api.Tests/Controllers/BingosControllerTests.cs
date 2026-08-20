@@ -459,6 +459,187 @@ public sealed class BingosControllerTests : IAsyncLifetime
         Assert.Equal(0, content.Total);
     }
 
+    private static object CrearBodyEdicion(
+        string? nombreEvento = "Bingo editado",
+        DateTime? fechaSorteoUtc = null,
+        decimal costoPorCarton = 200m)
+    {
+        return new
+        {
+            nombreEvento,
+            fechaSorteoUtc = (fechaSorteoUtc ?? DateTime.UtcNow.AddDays(10)).ToString("o"),
+            costoPorCarton,
+        };
+    }
+
+    [Fact]
+    public async Task Editar_ConDatosValidos_Devuelve200YPersisteLosCambios()
+    {
+        using var client = await NuevoClienteAutenticadoAsync();
+
+        var creacion = await client.PostAsJsonAsync("/api/bingos", CrearBodyBingo());
+        Assert.Equal(HttpStatusCode.Created, creacion.StatusCode);
+        var creado = await creacion.Content.ReadFromJsonAsync<BingoCreadoResponse>(DeserializeOptions);
+
+        var response = await client.PutAsJsonAsync(
+            $"/api/bingos/{creado!.Id}",
+            CrearBodyEdicion(nombreEvento: "Bingo Club Editado", costoPorCarton: 250m));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<BingoCreadoResponse>(DeserializeOptions);
+        Assert.NotNull(content);
+        Assert.Equal(creado.Id, content!.Id);
+        Assert.Equal("Bingo Club Editado", content.NombreEvento);
+        Assert.Equal(250m, content.CostoPorCarton);
+
+        var listado = await client.GetAsync("/api/bingos");
+        Assert.Equal(HttpStatusCode.OK, listado.StatusCode);
+        var listadoContent = await listado.Content.ReadFromJsonAsync<BingoListadoResponse>(DeserializeOptions);
+        Assert.Contains(listadoContent!.Items, b => b.Id == creado.Id && b.NombreEvento == "Bingo Club Editado");
+    }
+
+    [Fact]
+    public async Task Editar_ConIdInexistente_Devuelve404BingoNoEncontrado()
+    {
+        using var client = await NuevoClienteAutenticadoAsync();
+
+        var response = await client.PutAsJsonAsync($"/api/bingos/{Guid.NewGuid()}", CrearBodyEdicion());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("BingoNoEncontrado", error!.Error);
+    }
+
+    [Fact]
+    public async Task Editar_ConBingoDeOtroOrganizador_Devuelve404BingoNoEncontrado()
+    {
+        using var clienteA = await NuevoClienteAutenticadoAsync();
+        var creacionA = await clienteA.PostAsJsonAsync("/api/bingos", CrearBodyBingo());
+        Assert.Equal(HttpStatusCode.Created, creacionA.StatusCode);
+        var creadoA = await creacionA.Content.ReadFromJsonAsync<BingoCreadoResponse>(DeserializeOptions);
+
+        using var clienteB = await NuevoClienteAutenticadoAsync();
+        var response = await clienteB.PutAsJsonAsync($"/api/bingos/{creadoA!.Id}", CrearBodyEdicion());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("BingoNoEncontrado", error!.Error);
+    }
+
+    [Fact]
+    public async Task Editar_ConFechaSorteoPasada_Devuelve400FechaSorteoInvalida()
+    {
+        using var client = await NuevoClienteAutenticadoAsync();
+
+        var creacion = await client.PostAsJsonAsync("/api/bingos", CrearBodyBingo());
+        Assert.Equal(HttpStatusCode.Created, creacion.StatusCode);
+        var creado = await creacion.Content.ReadFromJsonAsync<BingoCreadoResponse>(DeserializeOptions);
+
+        var response = await client.PutAsJsonAsync(
+            $"/api/bingos/{creado!.Id}",
+            CrearBodyEdicion(fechaSorteoUtc: DateTime.UtcNow.AddDays(-1)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("FechaSorteoInvalida", error!.Error);
+    }
+
+    [Fact]
+    public async Task Editar_ConCostoPorCartonMenorOIgualACero_Devuelve400CostoPorCartonInvalido()
+    {
+        using var client = await NuevoClienteAutenticadoAsync();
+
+        var creacion = await client.PostAsJsonAsync("/api/bingos", CrearBodyBingo());
+        Assert.Equal(HttpStatusCode.Created, creacion.StatusCode);
+        var creado = await creacion.Content.ReadFromJsonAsync<BingoCreadoResponse>(DeserializeOptions);
+
+        var response = await client.PutAsJsonAsync(
+            $"/api/bingos/{creado!.Id}",
+            CrearBodyEdicion(costoPorCarton: 0m));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("CostoPorCartonInvalido", error!.Error);
+    }
+
+    [Fact]
+    public async Task Editar_SinAutenticacion_Devuelve401()
+    {
+        using var client = _factory.CreateClient();
+
+        var response = await client.PutAsJsonAsync($"/api/bingos/{Guid.NewGuid()}", CrearBodyEdicion());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Eliminar_ConBingoPropioConCartones_Devuelve204YEliminaElBingoYSusCartones()
+    {
+        using var client = await NuevoClienteAutenticadoAsync();
+
+        var creacion = await client.PostAsJsonAsync("/api/bingos", CrearBodyBingo(cantidadCartones: 5));
+        Assert.Equal(HttpStatusCode.Created, creacion.StatusCode);
+        var creado = await creacion.Content.ReadFromJsonAsync<BingoCreadoResponse>(DeserializeOptions);
+
+        var response = await client.DeleteAsync($"/api/bingos/{creado!.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        var listado = await client.GetAsync("/api/bingos");
+        Assert.Equal(HttpStatusCode.OK, listado.StatusCode);
+        var listadoContent = await listado.Content.ReadFromJsonAsync<BingoListadoResponse>(DeserializeOptions);
+        Assert.DoesNotContain(listadoContent!.Items, b => b.Id == creado.Id);
+
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(ConnectionString).Options;
+        await using var context = new AppDbContext(options);
+        var cartonesRestantes = await context.Cartones.Where(c => c.BingoId == creado.Id).ToListAsync();
+        Assert.Empty(cartonesRestantes);
+    }
+
+    [Fact]
+    public async Task Eliminar_ConIdInexistente_Devuelve404BingoNoEncontrado()
+    {
+        using var client = await NuevoClienteAutenticadoAsync();
+
+        var response = await client.DeleteAsync($"/api/bingos/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("BingoNoEncontrado", error!.Error);
+    }
+
+    [Fact]
+    public async Task Eliminar_ConBingoDeOtroOrganizador_Devuelve404BingoNoEncontrado()
+    {
+        using var clienteA = await NuevoClienteAutenticadoAsync();
+        var creacionA = await clienteA.PostAsJsonAsync("/api/bingos", CrearBodyBingo());
+        Assert.Equal(HttpStatusCode.Created, creacionA.StatusCode);
+        var creadoA = await creacionA.Content.ReadFromJsonAsync<BingoCreadoResponse>(DeserializeOptions);
+
+        using var clienteB = await NuevoClienteAutenticadoAsync();
+        var response = await clienteB.DeleteAsync($"/api/bingos/{creadoA!.Id}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("BingoNoEncontrado", error!.Error);
+    }
+
+    [Fact]
+    public async Task Eliminar_SinAutenticacion_Devuelve401()
+    {
+        using var client = _factory.CreateClient();
+
+        var response = await client.DeleteAsync($"/api/bingos/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
     private sealed record RegistrarOrganizadorResponseDto(Guid Id, string NombreOrganizacion, string Mail);
 
     private sealed record ErrorResponseDto(string Error, string Message);

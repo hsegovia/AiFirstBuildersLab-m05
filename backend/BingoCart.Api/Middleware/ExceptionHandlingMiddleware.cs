@@ -73,6 +73,14 @@ public sealed class ExceptionHandlingMiddleware
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "BingoActivoExistente");
         }
+        catch (BingoNoEncontradoException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.NotFound, "BingoNoEncontrado");
+        }
+        catch (BingoConComprasException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "BingoConCompras");
+        }
         catch (Exception ex)
         {
             // No controlada: nunca se expone el mensaje real (puede contener detalles internos) ni

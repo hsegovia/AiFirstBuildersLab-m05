@@ -22,4 +22,21 @@ public interface IBingoService
     /// valor ya clampeado, no el solicitado.
     /// </summary>
     Task<BingoListadoResponse> ListarPropiosAsync(Guid organizadorId, int page, int pageSize);
+
+    /// <summary>
+    /// Edita nombre, fecha de sorteo y costo por cartón de un bingo propio de
+    /// <paramref name="organizadorId"/> sin compras registradas (spec FEAT-007, Block 2). Lanza
+    /// <see cref="BingoCart.Domain.Bingos.Exceptions.BingoNoEncontradoException"/> si el bingo no
+    /// existe o pertenece a otro organizador (mismo tipo para ambos casos, no-enumeración), y
+    /// <see cref="BingoCart.Domain.Bingos.Exceptions.BingoConComprasException"/> si ya tiene
+    /// compras registradas.
+    /// </summary>
+    Task<BingoCreadoResponse> EditarAsync(Guid id, EditarBingoRequest request, Guid organizadorId);
+
+    /// <summary>
+    /// Elimina un bingo propio de <paramref name="organizadorId"/> sin compras registradas, junto
+    /// con todos sus cartones (spec FEAT-007, Block 2). Mismas excepciones que
+    /// <see cref="EditarAsync"/>.
+    /// </summary>
+    Task EliminarAsync(Guid id, Guid organizadorId);
 }

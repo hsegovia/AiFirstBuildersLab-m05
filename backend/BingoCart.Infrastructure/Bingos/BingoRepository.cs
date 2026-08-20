@@ -43,4 +43,20 @@ public sealed class BingoRepository : IBingoRepository
 
         return new BingosPaginados(bingos, total);
     }
+
+    public Task<Bingo?> ObtenerPorIdAsync(Guid id) =>
+        _context.Bingos.FirstOrDefaultAsync(b => b.Id == id);
+
+    public async Task EliminarAsync(Bingo bingo)
+    {
+        _context.Bingos.Remove(bingo);
+        await _context.SaveChangesAsync();
+    }
+
+    // Punto de extensión (spec FEAT-007, Block 1): la entidad `Compra` todavía no existe (ticket
+    // futuro de carrito/compra) — cuando exista, este es el único método a tocar para activar el
+    // chequeo real. Hasta entonces, ningún bingo se considera "con compras".
+    public Task<bool> TieneComprasRegistradasAsync(Guid bingoId) => Task.FromResult(false);
+
+    public Task GuardarCambiosAsync() => _context.SaveChangesAsync();
 }

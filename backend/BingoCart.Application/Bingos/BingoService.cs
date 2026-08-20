@@ -94,4 +94,48 @@ public sealed class BingoService : IBingoService
 
         return new BingoListadoResponse(items, paginados.Total, totalPaginas, page, pageSizeClamped);
     }
+
+    public async Task<BingoCreadoResponse> EditarAsync(Guid id, EditarBingoRequest request, Guid organizadorId)
+    {
+        var bingo = await ObtenerBingoPropioSinComprasAsync(id, organizadorId);
+
+        var ahoraUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        bingo.Actualizar(request.NombreEvento, request.FechaSorteoUtc, request.CostoPorCarton, ahoraUtc);
+
+        await _bingoRepository.GuardarCambiosAsync();
+
+        return new BingoCreadoResponse(
+            bingo.Id,
+            bingo.NombreEvento,
+            bingo.FechaSorteoUtc,
+            bingo.CantidadCartones,
+            bingo.CostoPorCarton);
+    }
+
+    public async Task EliminarAsync(Guid id, Guid organizadorId)
+    {
+        var bingo = await ObtenerBingoPropioSinComprasAsync(id, organizadorId);
+
+        await _bingoRepository.EliminarAsync(bingo);
+    }
+
+    // Chequeo compartido por EditarAsync/EliminarAsync (spec FEAT-007, Block 2): mismo Id
+    // inexistente/ajeno → BingoNoEncontradoException (no-enumeración), mismo bingo con compras →
+    // BingoConComprasException.
+    private async Task<Bingo> ObtenerBingoPropioSinComprasAsync(Guid id, Guid organizadorId)
+    {
+        var bingo = await _bingoRepository.ObtenerPorIdAsync(id);
+        if (bingo is null || bingo.OrganizadorId != organizadorId)
+        {
+            throw new BingoNoEncontradoException("El bingo indicado no existe.");
+        }
+
+        var tieneCompras = await _bingoRepository.TieneComprasRegistradasAsync(id);
+        if (tieneCompras)
+        {
+            throw new BingoConComprasException("El bingo tiene compras registradas.");
+        }
+
+        return bingo;
+    }
 }

@@ -15,15 +15,15 @@ public sealed class Bingo
 
     public Guid OrganizadorId { get; private init; }
 
-    public string NombreEvento { get; private init; } = string.Empty;
+    public string NombreEvento { get; private set; } = string.Empty;
 
-    public DateTime FechaSorteoUtc { get; private init; }
+    public DateTime FechaSorteoUtc { get; private set; }
 
     public DateTime FechaCreacionUtc { get; private init; }
 
     public int CantidadCartones { get; private init; }
 
-    public decimal CostoPorCarton { get; private init; }
+    public decimal CostoPorCarton { get; private set; }
 
     private Bingo()
     {
@@ -87,5 +87,38 @@ public sealed class Bingo
             CantidadCartones = cantidadCartones,
             CostoPorCarton = costoPorCarton,
         };
+    }
+
+    /// <summary>
+    /// Actualiza <see cref="NombreEvento"/>, <see cref="FechaSorteoUtc"/> y
+    /// <see cref="CostoPorCarton"/> reaplicando las mismas invariantes que <see cref="Crear"/> (fecha
+    /// futura, costo mayor a cero, en ese orden). <see cref="Id"/>, <see cref="OrganizadorId"/> y
+    /// <see cref="CantidadCartones"/> nunca cambian — fuera de alcance del PRD. Muta la instancia en
+    /// lugar de devolver una nueva para que EF Core, si esta instancia fue cargada trackeada (vía
+    /// <c>IBingoRepository.ObtenerPorIdAsync</c>), detecte el cambio automáticamente al llamar
+    /// <c>SaveChangesAsync</c>. <c>NombreEvento</c> NO se valida acá, mismo criterio que
+    /// <see cref="Crear"/> (la validación de forma vive en el DTO de Application).
+    /// </summary>
+    /// <exception cref="FechaSorteoInvalidaException">
+    /// La fecha de sorteo no es posterior a <paramref name="ahoraUtc"/>.
+    /// </exception>
+    /// <exception cref="CostoPorCartonInvalidoException">
+    /// El costo por cartón no es mayor a cero.
+    /// </exception>
+    public void Actualizar(string nombreEvento, DateTime fechaSorteoUtc, decimal costoPorCarton, DateTime ahoraUtc)
+    {
+        if (fechaSorteoUtc <= ahoraUtc)
+        {
+            throw new FechaSorteoInvalidaException("La fecha de sorteo debe ser futura.");
+        }
+
+        if (costoPorCarton <= 0)
+        {
+            throw new CostoPorCartonInvalidoException("El costo por cartón debe ser mayor a cero.");
+        }
+
+        NombreEvento = nombreEvento;
+        FechaSorteoUtc = fechaSorteoUtc;
+        CostoPorCarton = costoPorCarton;
     }
 }

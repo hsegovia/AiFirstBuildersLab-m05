@@ -58,4 +58,69 @@ public class BingoTests
         Assert.Throws<CostoPorCartonInvalidoException>(() =>
             Bingo.Crear("Bingo Solidario", FechaSorteoFutura, 100, 0m, OrganizadorId, AhoraUtc));
     }
+
+    [Fact]
+    public void Actualizar_ConNombreFechaFuturaYCostoValidos_ActualizaLosTresCamposSinTocarIdOrganizadorIdNiCantidadCartones()
+    {
+        var bingo = Bingo.Crear(
+            "Bingo Solidario",
+            FechaSorteoFutura,
+            100,
+            500m,
+            OrganizadorId,
+            AhoraUtc);
+        var idOriginal = bingo.Id;
+        var organizadorIdOriginal = bingo.OrganizadorId;
+        var cantidadCartonesOriginal = bingo.CantidadCartones;
+        var nuevaFechaSorteo = FechaSorteoFutura.AddDays(1);
+
+        bingo.Actualizar("Bingo Renovado", nuevaFechaSorteo, 750m, AhoraUtc);
+
+        Assert.Equal("Bingo Renovado", bingo.NombreEvento);
+        Assert.Equal(nuevaFechaSorteo, bingo.FechaSorteoUtc);
+        Assert.Equal(750m, bingo.CostoPorCarton);
+        Assert.Equal(idOriginal, bingo.Id);
+        Assert.Equal(organizadorIdOriginal, bingo.OrganizadorId);
+        Assert.Equal(cantidadCartonesOriginal, bingo.CantidadCartones);
+    }
+
+    [Fact]
+    public void Actualizar_ConFechaSorteoNoFutura_LanzaFechaSorteoInvalidaExceptionSinModificarElEstado()
+    {
+        var bingo = Bingo.Crear(
+            "Bingo Solidario",
+            FechaSorteoFutura,
+            100,
+            500m,
+            OrganizadorId,
+            AhoraUtc);
+        var fechaNoFutura = AhoraUtc.AddMinutes(-1);
+
+        Assert.Throws<FechaSorteoInvalidaException>(() =>
+            bingo.Actualizar("Bingo Renovado", fechaNoFutura, 750m, AhoraUtc));
+
+        Assert.Equal("Bingo Solidario", bingo.NombreEvento);
+        Assert.Equal(FechaSorteoFutura, bingo.FechaSorteoUtc);
+        Assert.Equal(500m, bingo.CostoPorCarton);
+    }
+
+    [Fact]
+    public void Actualizar_ConCostoPorCartonMenorOIgualACero_LanzaCostoPorCartonInvalidoExceptionSinModificarElEstado()
+    {
+        var bingo = Bingo.Crear(
+            "Bingo Solidario",
+            FechaSorteoFutura,
+            100,
+            500m,
+            OrganizadorId,
+            AhoraUtc);
+        var nuevaFechaSorteo = FechaSorteoFutura.AddDays(1);
+
+        Assert.Throws<CostoPorCartonInvalidoException>(() =>
+            bingo.Actualizar("Bingo Renovado", nuevaFechaSorteo, 0m, AhoraUtc));
+
+        Assert.Equal("Bingo Solidario", bingo.NombreEvento);
+        Assert.Equal(FechaSorteoFutura, bingo.FechaSorteoUtc);
+        Assert.Equal(500m, bingo.CostoPorCarton);
+    }
 }

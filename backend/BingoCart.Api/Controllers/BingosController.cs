@@ -72,4 +72,47 @@ public sealed class BingosController : ControllerBase
 
         return Ok(response);
     }
+
+    /// <summary>
+    /// Edita nombre, fecha de sorteo y costo por cartón de un bingo propio del organizador
+    /// autenticado sin compras registradas (spec FEAT-007, Block 2). Sin rate limiting (mismo
+    /// criterio que <see cref="Listar"/>: no tiene un costo análogo a generar cartones).
+    /// </summary>
+    [HttpPut("{id:guid}")]
+    [ProducesResponseType(typeof(BingoCreadoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<BingoCreadoResponse>> Editar(Guid id, [FromBody] EditarBingoRequest request)
+    {
+        // Mismo patrón que Crear/Listar: organizadorId derivado exclusivamente del claim JWT, nunca
+        // del {id} de ruta ni del body (NFR-01).
+        var organizadorId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+        var response = await _bingoService.EditarAsync(id, request, organizadorId);
+
+        return Ok(response);
+    }
+
+    /// <summary>
+    /// Elimina un bingo propio del organizador autenticado sin compras registradas, junto con
+    /// todos sus cartones (spec FEAT-007, Block 2). Sin rate limiting (mismo criterio que
+    /// <see cref="Editar"/>).
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Eliminar(Guid id)
+    {
+        // Mismo patrón que Crear/Listar/Editar: organizadorId derivado exclusivamente del claim
+        // JWT, nunca del {id} de ruta (NFR-01).
+        var organizadorId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+        await _bingoService.EliminarAsync(id, organizadorId);
+
+        return NoContent();
+    }
 }
