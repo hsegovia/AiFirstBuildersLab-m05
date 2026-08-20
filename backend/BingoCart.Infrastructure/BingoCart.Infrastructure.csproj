@@ -12,6 +12,9 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.11" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
+    <!-- Primer uso de Redis del proyecto (spec FEAT-008b, Block 1) — CarritoRepository, único
+         consumidor: estado del carrito de compras, sin dependencia de EF Core/SQL Server. -->
+    <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
   </ItemGroup>
 
   <PropertyGroup>

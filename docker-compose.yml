@@ -34,6 +34,25 @@ services:
       retries: 10
       start_period: 20s
 
+  # Redis (spec FEAT-008b, Block 1): primer uso del proyecto, único responsable del estado del
+  # carrito de compras por sesión anónima. Sin volumen: el carrito es efímero por diseño (TTL de
+  # minutos), perderlo en un restart del contenedor es aceptable — a diferencia de `db`, no hay
+  # ninguna garantía de durabilidad que preservar (threat-FEAT-008b.md, riesgo R-05 aceptado).
+  redis:
+    image: redis:7-alpine
+    container_name: bingocart-redis
+    ports:
+      # Mismo criterio de remapeo que `db`/14330: puerto expuesto al host solo para desarrollo
+      # local, para no chocar con un Redis local del desarrollador. No debe exponerse en ningún
+      # entorno compartido o productivo (riesgo aceptado R-05, threat-FEAT-008b.md).
+      - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   api:
     build:
       context: ./backend
@@ -57,8 +76,14 @@ services:
       # local que appsettings.Development.json, nunca un secreto real. Sobreescribible con la
       # variable de entorno JWT_SIGNING_KEY del host si se necesita otra.
       Jwt__SigningKey: "${JWT_SIGNING_KEY:--uBhxtdhOe3nsTJGPrTVZP1EL16zOGI0VYCVTbY8Zr57}"
+      # Dentro de la red de docker-compose el host es el nombre del servicio (`redis`), no
+      # localhost — mismo criterio que ConnectionStrings__Default para `db` (Block 1, spec
+      # FEAT-008b).
+      Redis__ConnectionString: "redis:6379"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   web:

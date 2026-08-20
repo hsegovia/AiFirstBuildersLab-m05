@@ -15,11 +15,15 @@ public interface IDescubrimientoRepository
 {
     /// <summary>
     /// Devuelve hasta <paramref name="cantidad"/> cartones elegidos al azar entre todos los bingos
-    /// con <c>FechaSorteoUtc</c> posterior a <paramref name="ahoraUtc"/> (Método 1 — FR-01). Menos
-    /// de <paramref name="cantidad"/> cartones elegibles no es un error: devuelve todos los
-    /// disponibles.
+    /// con <c>FechaSorteoUtc</c> posterior a <paramref name="ahoraUtc"/> (Método 1 — FR-01), nunca
+    /// incluyendo ninguno de <paramref name="excluirCartonIds"/> (spec FEAT-008b, Block 2 — "nueva
+    /// tanda" del carrito no repite cartones ya agregados/descartados). Colección vacía → sin
+    /// cláusula de exclusión, mismo comportamiento que antes de FEAT-008b (sin regresión para
+    /// FEAT-008a). Menos de <paramref name="cantidad"/> cartones elegibles no es un error: devuelve
+    /// todos los disponibles.
     /// </summary>
-    Task<IReadOnlyList<Carton>> ObtenerAleatoriosGlobalAsync(DateTime ahoraUtc, int cantidad);
+    Task<IReadOnlyList<Carton>> ObtenerAleatoriosGlobalAsync(
+        DateTime ahoraUtc, int cantidad, IReadOnlyCollection<Guid> excluirCartonIds);
 
     /// <summary>
     /// Indica si existe un organizador con <paramref name="organizadorId"/> (FR-05/AC-03) —
@@ -37,10 +41,13 @@ public interface IDescubrimientoRepository
 
     /// <summary>
     /// Devuelve hasta <paramref name="cantidad"/> cartones elegidos al azar del bingo
-    /// <paramref name="bingoId"/> (Método 2 — FR-05). Menos de <paramref name="cantidad"/> cartones
-    /// no es un error: devuelve todos los disponibles.
+    /// <paramref name="bingoId"/> (Método 2 — FR-05), nunca incluyendo ninguno de
+    /// <paramref name="excluirCartonIds"/> (spec FEAT-008b, Block 2). Colección vacía → sin
+    /// cláusula de exclusión, mismo comportamiento que antes de FEAT-008b. Menos de
+    /// <paramref name="cantidad"/> cartones no es un error: devuelve todos los disponibles.
     /// </summary>
-    Task<IReadOnlyList<Carton>> ObtenerAleatoriosDeBingoAsync(Guid bingoId, int cantidad);
+    Task<IReadOnlyList<Carton>> ObtenerAleatoriosDeBingoAsync(
+        Guid bingoId, int cantidad, IReadOnlyCollection<Guid> excluirCartonIds);
 
     /// <summary>
     /// Devuelve el <see cref="BingoResumen"/> de cada <c>Guid</c> en <paramref name="bingoIds"/> —

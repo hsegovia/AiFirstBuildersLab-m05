@@ -4,10 +4,12 @@ using System.Threading.RateLimiting;
 using BingoCart.Api.Middleware;
 using BingoCart.Application.Auth;
 using BingoCart.Application.Bingos;
+using BingoCart.Application.Carritos;
 using BingoCart.Application.Descubrimiento;
 using BingoCart.Application.Organizadores;
 using BingoCart.Infrastructure.Auth;
 using BingoCart.Infrastructure.Bingos;
+using BingoCart.Infrastructure.Carritos;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Descubrimiento;
 using BingoCart.Infrastructure.Identity;
@@ -19,6 +21,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -52,6 +55,22 @@ builder.Services.AddScoped<IDirectorioRepository, DirectorioRepository>();
 // IDirectorioRepository/IOrganizadorService — dependen de AppDbContext.
 builder.Services.AddScoped<IDescubrimientoRepository, DescubrimientoRepository>();
 builder.Services.AddScoped<IDescubrimientoService, DescubrimientoService>();
+
+// FEAT-008b, Block 1: primer uso de Redis del proyecto. IConnectionMultiplexer Singleton — es la
+// propia librería StackExchange.Redis quien documenta reusar una única instancia por proceso
+// (multiplexa todas las conexiones concurrentes internamente), nunca crear una por request.
+// ICarritoRepository Scoped por consistencia con el resto de los repositorios (no porque dependa
+// de nada con lifetime más corto: solo usa el multiplexer singleton). El `!` sobre
+// Redis:ConnectionString es intencional (sin el AddOptions<T>().Validate() que sí tiene Jwt,
+// fuera del alcance de este bloque): una connection string ausente debe tirar abajo el arranque
+// del proceso con un mensaje claro de ConnectionMultiplexer.Connect, no colar un valor nulo.
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect(builder.Configuration["Redis:ConnectionString"]!));
+builder.Services.AddScoped<ICarritoRepository, CarritoRepository>();
+
+// FEAT-008b, Block 3: ICarritoService Scoped, mismo lifetime que ICarritoRepository — depende de
+// IBingoRepository/IDescubrimientoRepository/ICarritoRepository, todos Scoped.
+builder.Services.AddScoped<ICarritoService, CarritoService>();
 
 // TimeProvider.System es el reloj real en producción; los tests inyectan un TestTimeProvider
 // propio en el JwtTokenService construido directamente (sin pasar por DI), spec FEAT-001b Block 1.
@@ -204,6 +223,18 @@ builder.Services.AddRateLimiter(options =>
     // IP (mismo criterio que "directorio"), con un límite más generoso (60 req/5 min) porque ambos
     // endpoints alimentan una vista de descubrimiento pensada para refrescarse con frecuencia.
     options.AddPolicy("descubrimiento", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 60,
+            Window = TimeSpan.FromMinutes(5)
+        }));
+
+    // Rate limiting sobre los 4 endpoints de CarritoController (spec FEAT-008b, threat model,
+    // riesgo R-03: DoS por creación de sesiones/reservas sin intención de comprar), particionado
+    // por IP (mismo criterio que "descubrimiento" — endpoints [AllowAnonymous], sin claim de
+    // usuario que particionar), mismo límite generoso de 60 req/5 min.
+    options.AddPolicy("carrito", httpContext => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         factory: _ => new FixedWindowRateLimiterOptions
         {

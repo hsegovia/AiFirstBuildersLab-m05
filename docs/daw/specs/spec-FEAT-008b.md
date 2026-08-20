@@ -457,9 +457,18 @@ excluido por "ya en el carrito" o "ya descartado" aparece en una nueva tanda de 
 
 **Input validation**
 `cartonId:guid`/`organizadorId:guid` en ruta/body rechazan automáticamente valores no-Guid (routing/
-model binding de ASP.NET Core, 400). `cartonIdsDescartados` no se valida por tamaño — una lista más
-larga que la tanda real simplemente no encuentra coincidencias adicionales que excluir, sin efecto
-dañino.
+model binding de ASP.NET Core, 400). `cartonIdsDescartados` **sí se valida por tamaño** (corrección
+post-SAST, F-SAST-14): la afirmación original de este documento —"una lista más larga que la tanda
+real simplemente no encuentra coincidencias adicionales que excluir, sin efecto dañino"— era
+correcta funcionalmente pero no consideraba el costo de cómputo/DB. Sin límite, un cliente sin
+autenticar podía mandar un array de cientos de miles de `Guid` en `POST /api/carrito/tandas/nueva`,
+inflando sin control el `NOT IN (...)` que arma `DescubrimientoRepository.ConstruirClausulaExclusion`
+(un literal por elemento) — agotamiento de recursos sobre un endpoint público compartido por todos
+los participantes, no inyección (el tipo `Guid` ya lo descarta). `CarritoService` ahora rechaza con
+`CantidadDescartadosExcedeLimiteException` (→ 400) cualquier `cartonIdsDescartados` de más de 50
+elementos, ANTES de tocar Redis o SQL: la tanda real nunca supera `CantidadPorTanda` (5) por
+request, así que 50 da 10x de margen para acumular varias tandas descartadas en una sesión sin
+abrir la puerta a un array de miles.
 
 **Error handling**
 `CartonInexistenteException` → 404 (nueva). `CartonYaReservadoException` → 409 (nueva). Sin otros

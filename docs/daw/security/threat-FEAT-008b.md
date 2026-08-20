@@ -116,6 +116,26 @@ son datos personales ni credenciales.
 4. Script Lua recibe `sesionId`/`cartonId` exclusivamente vía `ARGV`, nunca concatenados al cuerpo
    del script — a confirmar explícitamente en SAST (CODE), mismo criterio que
    `FromSqlInterpolated` en FEAT-008a.
+5. **Addendum de CODE (Block 2), no anticipado en PLAN:** la cláusula de exclusión de
+   `DescubrimientoRepository` no pudo implementarse con `FromSqlInterpolated` como decía la spec
+   original — cada hueco `{}` de `FromSqlInterpolated` se parametriza como un único valor SQL, no
+   como una lista, así que no puede expresar un `NOT IN (...)` de longitud variable. Se usó
+   `FromSqlRaw` en su lugar: `cantidad`/`ahoraUtc`/`bingoId` siguen parametrizados de verdad (vía los
+   placeholders `{0}`/`{1}` propios de `FromSqlRaw`, traducidos a `SqlParameter`s reales por EF
+   Core), y la cláusula `NOT IN (...)` se arma concatenando texto en C# — pero exclusivamente a
+   partir de `Guid.ToString()` sobre valores cuyo tipo (`IReadOnlyCollection<Guid>`, nunca
+   `string`) el compilador de C# garantiza en cada punto de la cadena de llamadas (verificado en
+   CODE, rastreo completo desde `CarritoController`/Redis hasta este método: nunca hay un `string`
+   crudo de request que llegue sin pasar antes por `Guid.Parse`/model binding, que rechaza cualquier
+   valor no conforme). El formato "D" de `Guid.ToString()` produce únicamente
+   `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}` — sin comillas, `;`, `--` ni ningún
+   metacarácter SQL, verificado empíricamente en VERIFY de Block 2 (no solo por inspección). Esto
+   satisface el requisito que R-01 de FEAT-008a dejó pendiente para "cualquier futuro cambio que
+   reintroduzca concatenación de string": hay concatenación de texto en el sentido literal, pero no
+   sobre input de usuario sin validar — la garantía es de tipos en tiempo de compilación, no una
+   promesa sobre el origen del dato "hoy". Riesgo de inyección: **descartado, no un nuevo hallazgo
+   MEDIUM** — la garantía es estructuralmente más fuerte que la de `FromSqlInterpolated` sobre un
+   `string` sin tipar, no más débil.
 5. Rate limiting `"carrito"` (60 req/5min/IP) en los 4 endpoints — ya en la spec, Block 3.
 6. Redis sin volumen persistente, puerto expuesto solo para desarrollo local — ya en
    `docker-compose.yml` (Block 1).
