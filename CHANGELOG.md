@@ -8,6 +8,14 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-007**: Edición y eliminación de bingo sin compras — `PUT /api/bingos/{id}` (edita nombre
+  de evento, fecha de sorteo y costo por cartón) y `DELETE /api/bingos/{id}` (elimina el bingo y
+  todos sus cartones, vía cascade de esquema) para el organizador dueño, siempre que el bingo no
+  tenga compras registradas. Primera entidad mutable del dominio (`Bingo.Actualizar`) y primer 404
+  del proyecto. Un organizador nunca puede editar ni eliminar un bingo ajeno: mismo tipo de error
+  (404) para "no existe" y "es de otro organizador", sin distinguir los casos. Backend-only, sin
+  pantalla de edición/eliminación en el frontend todavía.
+
 - **FEAT-004**: Listado de bingos propios del organizador — `GET /api/bingos` (protegido,
   autenticado): un organizador lista los bingos que él mismo creó (nombre del evento, fecha de
   sorteo, cantidad de cartones, costo por cartón), paginado (`page`/`pageSize`, máximo 100 por
