@@ -110,4 +110,24 @@ public sealed class OrganizadoresController : ControllerBase
         var mail = User.FindFirstValue(ClaimTypes.Email)!;
         return Ok(new PerfilOrganizadorResponse(mail));
     }
+
+    /// <summary>
+    /// Directorio público de organizadores con un bingo cuyo sorteo todavía no ocurrió (spec
+    /// FEAT-005, Block 2). Endpoint público: sin autenticación (<see cref="AllowAnonymousAttribute"/>,
+    /// mismo patrón que <see cref="RegistrarAsync"/>/<see cref="Login"/>) y con rate limiting
+    /// (30 req/5 min/IP, política <c>"directorio"</c> configurada en <c>Program.cs</c>) para mitigar
+    /// spam/DoS (threat model FEAT-005, riesgo R-02). Delega 100% a
+    /// <see cref="IOrganizadorService.ListarDirectorioAsync"/>, sin lógica de negocio propia.
+    /// </summary>
+    [HttpGet("directorio")]
+    [AllowAnonymous]
+    [EnableRateLimiting("directorio")]
+    [ProducesResponseType(typeof(DirectorioResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<DirectorioResponse>> Directorio([FromQuery] ListarDirectorioQuery query)
+    {
+        var response = await _organizadorService.ListarDirectorioAsync(query.Page, query.PageSize);
+
+        return Ok(response);
+    }
 }

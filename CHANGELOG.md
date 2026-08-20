@@ -8,6 +8,14 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-005**: Directorio público de organizadores — `GET /api/organizadores/directorio`
+  (público, sin autenticación): cualquier visitante lista los organizadores con un bingo de sorteo
+  futuro (nombre de la organización, nombre del evento, fecha de sorteo), paginado y ordenado por
+  fecha de sorteo ascendente. La proyección nunca expone CUIT/mail/teléfono del organizador
+  (verificado contra el body crudo de la respuesta, no solo el tipo deserializado). Rate limiting
+  de 30 requests/5 min por IP para mitigar spam/DoS sobre un endpoint anónimo. Backend-only, sin
+  pantalla de directorio en el frontend todavía.
+
 - **FEAT-004**: Listado de bingos propios del organizador — `GET /api/bingos` (protegido,
   autenticado): un organizador lista los bingos que él mismo creó (nombre del evento, fecha de
   sorteo, cantidad de cartones, costo por cartón), paginado (`page`/`pageSize`, máximo 100 por
