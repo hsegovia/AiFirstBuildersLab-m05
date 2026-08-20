@@ -12,8 +12,9 @@ namespace BingoCart.Infrastructure.Organizadores;
 /// proyecto que cruza <c>Bingos</c> con la tabla de Identity (<c>AppDbContext.Users</c>), vía
 /// <c>OrganizadorId == Id</c> (FK lógica, sin <c>HasForeignKey</c> de EF Core — mismo criterio ya
 /// usado para <c>Bingo.OrganizadorId</c>, confirmado en FEAT-003). La proyección con
-/// <c>Select()</c> es LINQ estrictamente tipada a <see cref="DirectorioOrganizadorItem"/> (3
-/// campos) — nunca materializa <c>ApplicationUser</c> completo (mitigación R-01 del threat model).
+/// <c>Select()</c> es LINQ estrictamente tipada a <see cref="DirectorioOrganizadorItem"/> (4
+/// campos, incluido <c>Id</c> desde spec FEAT-008a) — nunca materializa <c>ApplicationUser</c>
+/// completo (mitigación R-01 del threat model).
 /// </summary>
 public sealed class DirectorioRepository : IDirectorioRepository
 {
@@ -36,7 +37,7 @@ public sealed class DirectorioRepository : IDirectorioRepository
             .OrderBy(x => x.b.FechaSorteoUtc)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(x => new DirectorioOrganizadorItem(x.u.NombreOrganizacion, x.b.NombreEvento, x.b.FechaSorteoUtc))
+            .Select(x => new DirectorioOrganizadorItem(x.u.Id, x.u.NombreOrganizacion, x.b.NombreEvento, x.b.FechaSorteoUtc))
             .ToListAsync();
 
         return new DirectorioPaginado(items, total);

@@ -8,6 +8,15 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-008a**: Descubrimiento público de cartones — `GET /api/cartones/descubrimiento` (5
+  cartones aleatorios de cualquier bingo activo) y `GET /api/cartones/organizador/{organizadorId}`
+  (5 cartones aleatorios del bingo activo de un organizador), ambos públicos, sin autenticación.
+  Selección aleatoria resuelta en SQL Server (`ORDER BY NEWID()` vía `FromSqlInterpolated`
+  parametrizado — primer SQL crudo del proyecto), nunca cargando en memoria el conjunto completo
+  de cartones candidatos. El directorio público (`GET /api/organizadores/directorio`, FEAT-005)
+  ahora también expone el `Id` del organizador, necesario para conectar ambos flujos. Rate limiting
+  de 60 requests/5 min por IP. Backend-only, sin pantalla de descubrimiento en el frontend todavía.
+
 - **FEAT-007**: Edición y eliminación de bingo sin compras — `PUT /api/bingos/{id}` (edita nombre
   de evento, fecha de sorteo y costo por cartón) y `DELETE /api/bingos/{id}` (elimina el bingo y
   todos sus cartones, vía cascade de esquema) para el organizador dueño, siempre que el bingo no
