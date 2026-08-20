@@ -4,8 +4,10 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using BingoCart.Application.Auth;
 using BingoCart.Application.Organizadores.Dtos;
+using BingoCart.Domain.Bingos;
 using BingoCart.Infrastructure.Auth;
 using BingoCart.Infrastructure.Data;
+using BingoCart.Infrastructure.Identity;
 using BingoCart.Infrastructure.Tests.Auth;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -41,6 +43,50 @@ public sealed class OrganizadoresControllerTests : IAsyncLifetime
     private readonly HttpClient _client;
     private readonly List<string> _mailsCreados = new();
 
+    // Block 2 del spec FEAT-005: los tests del directorio siembran organizadores (algunos vía
+    // registro real, otros directo contra AppDbContext) y sus bingos activos — se rastrean acá para
+    // que DisposeAsync borre también los Bingos antes que los Users (mismo orden que
+    // BingosControllerTests.DisposeAsync, evita violar la FK lógica).
+    private readonly List<Guid> _organizadorIdsCreados = new();
+
+    // Multiplicadores del algoritmo estándar CUIT/CUIL (mismo mecanismo que
+    // BingosControllerTests.NuevoCuitValido): RegistrarYLoguearAsync pasa por
+    // POST /api/organizadores/registro real, que valida el CUIT con Organizador.Crear — a
+    // diferencia de la constante CuitValido (compartida, colisiona con más de un organizador),
+    // este generador produce un CUIT válido distinto por cada organizador sembrado por este bloque.
+    private static readonly int[] MultiplicadoresCuit = { 5, 4, 3, 2, 7, 6, 5, 4, 3, 2 };
+    private static long _secuenciaCuit;
+
+    private static string NuevoCuitValido()
+    {
+        while (true)
+        {
+            var secuencia = System.Threading.Interlocked.Increment(ref _secuenciaCuit);
+            var cuerpo = "30" + (10_000_000 + secuencia % 89_999_999).ToString("D8");
+            var digitos = cuerpo.Select(c => c - '0').ToArray();
+
+            var suma = 0;
+            for (var i = 0; i < MultiplicadoresCuit.Length; i++)
+            {
+                suma += digitos[i] * MultiplicadoresCuit[i];
+            }
+
+            var resto = suma % 11;
+            var digitoVerificador = 11 - resto;
+            if (digitoVerificador == 11)
+            {
+                digitoVerificador = 0;
+            }
+
+            if (digitoVerificador == 10)
+            {
+                continue;
+            }
+
+            return cuerpo + digitoVerificador;
+        }
+    }
+
     public OrganizadoresControllerTests()
     {
         _factory = new WebApplicationFactory<Program>()
@@ -52,13 +98,23 @@ public sealed class OrganizadoresControllerTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        if (_mailsCreados.Count > 0)
+        if (_mailsCreados.Count > 0 || _organizadorIdsCreados.Count > 0)
         {
             var options = new DbContextOptionsBuilder<AppDbContext>()
                 .UseSqlServer(ConnectionString)
                 .Options;
 
             await using var context = new AppDbContext(options);
+
+            if (_organizadorIdsCreados.Count > 0)
+            {
+                var bingos = await context.Bingos
+                    .Where(b => _organizadorIdsCreados.Contains(b.OrganizadorId))
+                    .ToListAsync();
+                context.Bingos.RemoveRange(bingos);
+                await context.SaveChangesAsync();
+            }
+
             var usuarios = await context.Users
                 .Where(u => u.Email != null && _mailsCreados.Contains(u.Email))
                 .ToListAsync();
@@ -388,7 +444,229 @@ public sealed class OrganizadoresControllerTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    private static object CrearBodyBingo(
+        string? nombreEvento = "Bingo de prueba",
+        DateTime? fechaSorteoUtc = null,
+        int cantidadCartones = 10,
+        decimal costoPorCarton = 100m)
+    {
+        return new
+        {
+            nombreEvento,
+            fechaSorteoUtc = (fechaSorteoUtc ?? DateTime.UtcNow.AddDays(5)).ToString("o"),
+            cantidadCartones,
+            costoPorCarton,
+        };
+    }
+
+    /// <summary>
+    /// Registra un organizador real vía <c>POST /api/organizadores/registro</c> + login (mismo
+    /// mecanismo que <c>NuevoClienteAutenticadoAsync</c> de <c>BingosControllerTests</c>) y devuelve
+    /// un cliente HTTPS ya autenticado junto con el <c>Guid</c> del organizador creado — necesario
+    /// para el test end-to-end de FR-01/AC-01 que crea un bingo real vía <c>POST /api/bingos</c>.
+    /// </summary>
+    private async Task<(HttpClient Cliente, Guid OrganizadorId)> RegistrarYLoguearAsync(string nombreOrganizacion)
+    {
+        var mail = NuevoMail();
+        var cuit = NuevoCuitValido();
+
+        using var clienteAnonimo = _factory.CreateClient();
+        var registro = await clienteAnonimo.PostAsJsonAsync(
+            "/api/organizadores/registro",
+            CrearBody(nombreOrganizacion: nombreOrganizacion, cuit: cuit, mail: mail));
+        registro.EnsureSuccessStatusCode();
+
+        var registroContent = await registro.Content.ReadFromJsonAsync<RegistrarOrganizadorResponse>(DeserializeOptions);
+        _organizadorIdsCreados.Add(registroContent!.Id);
+
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var login = await client.PostAsJsonAsync("/api/organizadores/login", new { mail, password = PasswordValida });
+        login.EnsureSuccessStatusCode();
+
+        return (client, registroContent.Id);
+    }
+
+    /// <summary>
+    /// Siembra un organizador (<see cref="ApplicationUser"/>) + un <see cref="Bingo"/> activo
+    /// directo contra <see cref="AppDbContext"/> (mismo mecanismo que
+    /// <c>DirectorioRepositoryTests.NuevoOrganizador</c>/<c>SeedBingoAsync</c> de
+    /// <c>BingosControllerTests</c>), sin pasar por los endpoints HTTP — necesario porque FR-06
+    /// impide más de un bingo activo por organizador a la vez, así que sembrar varios organizadores
+    /// distintos de una vez es más simple/rápido que registrar y loguear cada uno.
+    /// </summary>
+    private async Task<Guid> SembrarOrganizadorConBingoActivoAsync(
+        string nombreOrganizacion,
+        DateTime fechaSorteoUtc,
+        DateTime ahoraUtc,
+        string? cuit = null,
+        string? mail = null,
+        string? telefono = null)
+    {
+        var id = Guid.NewGuid();
+        var mailReal = mail ?? $"test-directorio-{id}@example.com";
+
+        var organizador = new ApplicationUser
+        {
+            Id = id,
+            UserName = mailReal,
+            Email = mailReal,
+            NombreOrganizacion = nombreOrganizacion,
+            Cuit = cuit ?? id.ToString("N")[..11],
+            Telefono = telefono ?? TelefonoValido,
+        };
+        var bingo = Bingo.Crear("Bingo de prueba", fechaSorteoUtc, 10, 100m, id, ahoraUtc);
+
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(ConnectionString).Options;
+        await using var context = new AppDbContext(options);
+        context.Users.Add(organizador);
+        context.Bingos.Add(bingo);
+        await context.SaveChangesAsync();
+
+        _organizadorIdsCreados.Add(id);
+        _mailsCreados.Add(mailReal);
+
+        return id;
+    }
+
+    [Fact]
+    public async Task Directorio_SinCookieDeAutenticacion_Devuelve200()
+    {
+        var response = await _client.GetAsync("/api/organizadores/directorio");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Directorio_ConDosOrganizadoresRegistradosYUnBingoCadaUno_Devuelve200ConAmbosOrdenadosPorFechaSorteoAscendente()
+    {
+        var (clienteUno, _) = await RegistrarYLoguearAsync("Club Uno Directorio");
+        var (clienteDos, _) = await RegistrarYLoguearAsync("Club Dos Directorio");
+
+        var bingoUno = await clienteUno.PostAsJsonAsync(
+            "/api/bingos",
+            CrearBodyBingo(nombreEvento: "Bingo Mas Lejano", fechaSorteoUtc: DateTime.UtcNow.AddDays(20)));
+        Assert.Equal(HttpStatusCode.Created, bingoUno.StatusCode);
+
+        var bingoDos = await clienteDos.PostAsJsonAsync(
+            "/api/bingos",
+            CrearBodyBingo(nombreEvento: "Bingo Mas Proximo", fechaSorteoUtc: DateTime.UtcNow.AddDays(5)));
+        Assert.Equal(HttpStatusCode.Created, bingoDos.StatusCode);
+
+        var response = await _client.GetAsync("/api/organizadores/directorio");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<DirectorioResponseDto>(DeserializeOptions);
+        Assert.NotNull(content);
+
+        var items = content!.Items.ToList();
+        var indexProximo = items.FindIndex(i => i.NombreEvento == "Bingo Mas Proximo");
+        var indexLejano = items.FindIndex(i => i.NombreEvento == "Bingo Mas Lejano");
+
+        Assert.True(indexProximo >= 0, "El bingo del organizador Dos no aparece en el directorio.");
+        Assert.True(indexLejano >= 0, "El bingo del organizador Uno no aparece en el directorio.");
+        Assert.True(indexProximo < indexLejano, "El sorteo más próximo debería aparecer primero.");
+        Assert.Equal("Club Dos Directorio", items[indexProximo].NombreOrganizacion);
+        Assert.Equal("Club Uno Directorio", items[indexLejano].NombreOrganizacion);
+    }
+
+    [Fact]
+    public async Task Directorio_ConSieteOrganizadoresConBingoActivoSembrados_Page2PageSize5_Devuelve200ConLosDosRestantesYTotalPaginasDos()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        for (var i = 0; i < 7; i++)
+        {
+            await SembrarOrganizadorConBingoActivoAsync(
+                $"Club Sembrado Directorio {i}", ahoraUtc.AddDays(1 + i), ahoraUtc);
+        }
+
+        var response = await _client.GetAsync("/api/organizadores/directorio?page=2&pageSize=5");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<DirectorioResponseDto>(DeserializeOptions);
+        Assert.NotNull(content);
+        Assert.Equal(2, content!.Items.Count);
+        Assert.Equal(7, content.Total);
+        Assert.Equal(2, content.TotalPaginas);
+        Assert.Equal(2, content.Page);
+        Assert.Equal(5, content.PageSize);
+        Assert.Equal("Club Sembrado Directorio 5", content.Items[0].NombreOrganizacion);
+        Assert.Equal("Club Sembrado Directorio 6", content.Items[1].NombreOrganizacion);
+    }
+
+    [Fact]
+    public async Task Directorio_ConPageCero_Devuelve400DatosInvalidos()
+    {
+        var response = await _client.GetAsync("/api/organizadores/directorio?page=0");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("DatosInvalidos", error!.Error);
+    }
+
+    [Fact]
+    public async Task Directorio_SinNingunOrganizadorConBingoActivo_Devuelve200ConItemsVacioYTotalCero()
+    {
+        var response = await _client.GetAsync("/api/organizadores/directorio");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<DirectorioResponseDto>(DeserializeOptions);
+        Assert.NotNull(content);
+        Assert.Empty(content!.Items);
+        Assert.Equal(0, content.Total);
+    }
+
+    [Fact]
+    public async Task Directorio_ConOrganizadorConCuitMailTelefono_LaRespuestaCrudaNoContieneEsosDatos()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var id = Guid.NewGuid();
+        var mailSensible = $"sensible-directorio-{id}@example.com";
+        var cuitSensible = id.ToString("N")[..11];
+        var telefonoSensible = "+54 11 9999-8888";
+
+        await SembrarOrganizadorConBingoActivoAsync(
+            "Club Con Datos Sensibles",
+            ahoraUtc.AddDays(3),
+            ahoraUtc,
+            cuit: cuitSensible,
+            mail: mailSensible,
+            telefono: telefonoSensible);
+
+        var response = await _client.GetAsync("/api/organizadores/directorio");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var rawBody = await response.Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain(cuitSensible, rawBody);
+        Assert.DoesNotContain(mailSensible, rawBody);
+        Assert.DoesNotContain(telefonoSensible, rawBody);
+    }
+
+    [Fact]
+    public async Task Directorio_Con30RequestsPreviasEnLaVentana_Request31Devuelve429()
+    {
+        for (var intento = 1; intento <= 30; intento++)
+        {
+            var respuesta = await _client.GetAsync("/api/organizadores/directorio");
+            Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+        }
+
+        var request31 = await _client.GetAsync("/api/organizadores/directorio");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, request31.StatusCode);
+    }
+
     private sealed record ErrorResponseDto(string Error, string Message);
 
     private sealed record PerfilOrganizadorResponseDto(string Mail);
+
+    private sealed record DirectorioResponseDto(
+        IReadOnlyList<DirectorioItemDto> Items, int Total, int TotalPaginas, int Page, int PageSize);
+
+    private sealed record DirectorioItemDto(string NombreOrganizacion, string NombreEvento, DateTime FechaSorteoUtc);
 }

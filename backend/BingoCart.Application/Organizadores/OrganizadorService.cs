@@ -8,18 +8,27 @@ namespace BingoCart.Application.Organizadores;
 
 /// <summary>
 /// Orquesta el registro (FR-01, FR-03, FR-04, FR-06, FR-07) y el login (spec FEAT-001b, Block 2) de
-/// organizador. No hace I/O propio: toda la persistencia/verificación de credenciales pasa por
-/// <see cref="IIdentityGateway"/>, inyectado.
+/// organizador, y el listado del directorio público (spec FEAT-005, Block 2). No hace I/O propio:
+/// toda la persistencia/verificación de credenciales pasa por <see cref="IIdentityGateway"/>, y la
+/// lectura del directorio por <see cref="IDirectorioRepository"/>, ambos inyectados.
 /// </summary>
 public sealed class OrganizadorService : IOrganizadorService
 {
     private readonly IIdentityGateway _gateway;
     private readonly IJwtTokenService _jwtTokenService;
+    private readonly IDirectorioRepository _directorioRepository;
+    private readonly TimeProvider _timeProvider;
 
-    public OrganizadorService(IIdentityGateway gateway, IJwtTokenService jwtTokenService)
+    public OrganizadorService(
+        IIdentityGateway gateway,
+        IJwtTokenService jwtTokenService,
+        IDirectorioRepository directorioRepository,
+        TimeProvider timeProvider)
     {
         _gateway = gateway;
         _jwtTokenService = jwtTokenService;
+        _directorioRepository = directorioRepository;
+        _timeProvider = timeProvider;
     }
 
     public async Task<RegistrarOrganizadorResponse> RegistrarAsync(RegistrarOrganizadorRequest request)
@@ -74,5 +83,23 @@ public sealed class OrganizadorService : IOrganizadorService
         var tokenGenerado = _jwtTokenService.GenerarToken(organizadorId, request.Mail);
 
         return new LoginOrganizadorResponse(tokenGenerado.Token, tokenGenerado.ExpiraEnUtc);
+    }
+
+    public async Task<DirectorioResponse> ListarDirectorioAsync(int page, int pageSize)
+    {
+        // Defensa en profundidad ante R-02 del threat model: [Range] en ListarDirectorioQuery
+        // valida el mínimo, no el máximo — acá se clampea el máximo real aplicado, sin depender
+        // únicamente de la validación de modelo (mismo criterio que BingoService.ListarPropiosAsync).
+        var pageSizeClamped = Math.Min(pageSize, 100);
+
+        var ahoraUtc = _timeProvider.GetUtcNow().UtcDateTime;
+
+        var paginado = await _directorioRepository.ListarActivosAsync(ahoraUtc, page, pageSizeClamped);
+
+        var totalPaginas = paginado.Total == 0
+            ? 0
+            : (int)Math.Ceiling(paginado.Total / (double)pageSizeClamped);
+
+        return new DirectorioResponse(paginado.Items, paginado.Total, totalPaginas, page, pageSizeClamped);
     }
 }

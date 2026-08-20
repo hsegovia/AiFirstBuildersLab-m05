@@ -9,6 +9,7 @@ using BingoCart.Infrastructure.Auth;
 using BingoCart.Infrastructure.Bingos;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Identity;
+using BingoCart.Infrastructure.Organizadores;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -40,6 +41,10 @@ builder.Services.AddScoped<IIdentityGateway, IdentityGateway>();
 builder.Services.AddScoped<IBingoService, BingoService>();
 builder.Services.AddScoped<IBingoRepository, BingoRepository>();
 builder.Services.AddSingleton<ICartonNumberGenerator, CartonNumberGenerator>();
+
+// FEAT-005, Block 2: IDirectorioRepository Scoped, mismo lifetime que IBingoRepository — depende
+// de AppDbContext.
+builder.Services.AddScoped<IDirectorioRepository, DirectorioRepository>();
 
 // TimeProvider.System es el reloj real en producción; los tests inyectan un TestTimeProvider
 // propio en el JwtTokenService construido directamente (sin pasar por DI), spec FEAT-001b Block 1.
@@ -171,6 +176,19 @@ builder.Services.AddRateLimiter(options =>
         factory: _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 3,
+            Window = TimeSpan.FromMinutes(5)
+        }));
+
+    // Rate limiting sobre GET /api/organizadores/directorio (spec FEAT-005, threat model, riesgo
+    // R-02: spam/DoS sin autenticación): particionado por IP (mismo criterio que "registro", único
+    // válido para un endpoint [AllowAnonymous]), con un límite más generoso (30 req/5 min vs. 5/min
+    // de "registro") porque navegar el directorio paginado es un uso legítimo esperado con más
+    // tráfico que un formulario de alta.
+    options.AddPolicy("directorio", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
             Window = TimeSpan.FromMinutes(5)
         }));
 });
