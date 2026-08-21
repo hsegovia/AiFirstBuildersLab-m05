@@ -53,6 +53,31 @@ services:
       retries: 10
       start_period: 10s
 
+  # smtp4dev (spec FEAT-009b, Block 3): servidor SMTP de prueba que retiene los mails en memoria
+  # sin reenviarlos a ningún destinatario real — captura los envíos de MailKitEmailSender tanto en
+  # desarrollo local como en los tests de integración (MailKitEmailSenderTests, sin mocks, mismo
+  # criterio "SQL Server/Redis reales" ya usado por ComprasControllerTests). Puerto 25 (SMTP) mapeado
+  # a 2525 del host (evita colisión con un MTA local); puerto 80 (UI web + API REST de mensajes) a
+  # 5080. Dev/test-only — mitigación R-08 del threat model: este contenedor NUNCA debe ser el valor
+  # de Smtp:Host de una configuración de Producción.
+  smtp4dev:
+    image: rnwood/smtp4dev:v3
+    container_name: bingocart-smtp4dev
+    environment:
+      # StartTls (no None): MailKitEmailSender exige SecureSocketOptions.StartTls (mitigación R-03,
+      # TLS obligatorio) — sin esto, la conexión desde MailKitEmailSenderTests fallaría contra este
+      # contenedor con "STARTTLS not supported", muy distinto del comportamiento contra un SMTP real.
+      ServerOptions__TlsMode: "StartTls"
+    ports:
+      - "2525:25"
+      - "5080:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/api/messages"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   api:
     build:
       context: ./backend
@@ -80,10 +105,21 @@ services:
       # localhost — mismo criterio que ConnectionStrings__Default para `db` (Block 1, spec
       # FEAT-008b).
       Redis__ConnectionString: "redis:6379"
+      # Dentro de la red de docker-compose el host es el nombre del servicio (`smtp4dev`), puerto
+      # interno 25 (2525 es solo el mapeo al host, ver el servicio `smtp4dev` arriba) — mismo
+      # criterio que Redis__ConnectionString/ConnectionStrings__Default. AllowInvalidCertificate en
+      # true SOLO acá (Development): smtp4dev usa un certificado autofirmado, nunca así en una
+      # config de Producción real (R-08, SmtpSettings.AllowInvalidCertificate).
+      Smtp__Host: "smtp4dev"
+      Smtp__Port: "25"
+      Smtp__From: "no-reply@bingocart.local"
+      Smtp__AllowInvalidCertificate: "true"
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      smtp4dev:
         condition: service_healthy
 
   web:
