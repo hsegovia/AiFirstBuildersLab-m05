@@ -8,6 +8,20 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-009a**: Confirmación de compra (núcleo) — `POST /api/compradores/registro` y
+  `POST /api/compradores/login` (públicos, primer flujo de auth de comprador, mismo patrón de
+  cookie httpOnly `bingocart_auth` ya usado para organizador) y `POST /api/compras/confirmar`
+  (autenticado, `[Authorize(Roles = "Comprador")]`): agrupa el carrito por organizador, registra
+  una `Compra` por organizador y marca los cartones vendidos vía la tabla `CompraCartones`
+  (`CartonId` como PRIMARY KEY, defensa final contra doble venta). `compradorId` se deriva
+  exclusivamente del claim JWT, nunca de la request. Coordinación entre Redis (carrito) y SQL
+  Server (compra) sin transacción distribuida: revalida las reservas (solo lectura) → confirma la
+  compra en SQL (transaccional) → libera el carrito en Redis, solo si el paso anterior tuvo éxito;
+  si SQL falla, el TTL de 5 minutos de Redis ya existente es la red de seguridad. Primer uso real
+  de roles de Identity (`Organizador`/`Comprador`) del proyecto. Rate limiting nuevo
+  (`"compradores"` 5/min/IP, `"compras"` 10/5min por comprador autenticado). Backend-only, sin
+  pantalla de checkout en el frontend todavía.
+
 - **FEAT-008b**: Carrito de compras — `POST /api/carrito/cartones/{cartonId}` (agregar),
   `DELETE /api/carrito/cartones/{cartonId}` (quitar, idempotente), `GET /api/carrito` (ver total y
   monto), `POST /api/carrito/tandas/nueva` (descartar y pedir una nueva tanda sin repetir cartones ya
