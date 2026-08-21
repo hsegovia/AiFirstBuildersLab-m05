@@ -344,6 +344,7 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         var compra = Compra.Crear(
             organizadorId,
             Guid.NewGuid(),
+            Guid.NewGuid(),
             new[] { new ItemCompra(Guid.NewGuid(), 100m) },
             MedioPago.Efectivo,
             DateTime.UtcNow);

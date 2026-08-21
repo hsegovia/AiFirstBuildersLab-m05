@@ -413,6 +413,7 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         Compra.Crear(
             organizadorId,
             compradorId,
+            Guid.NewGuid(),
             new[] { new ItemCompra(Guid.NewGuid(), 100m) },
             MedioPago.Efectivo,
             DateTime.UtcNow);

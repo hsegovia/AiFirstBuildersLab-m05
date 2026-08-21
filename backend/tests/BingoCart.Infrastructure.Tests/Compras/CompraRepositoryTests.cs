@@ -47,6 +47,7 @@ public sealed class CompraRepositoryTests : IAsyncLifetime
         Compra.Crear(
             organizadorId,
             compradorId,
+            Guid.NewGuid(),
             cartonIds.Select(id => new ItemCompra(id, 100m)).ToList(),
             medioPago,
             DateTime.UtcNow);
