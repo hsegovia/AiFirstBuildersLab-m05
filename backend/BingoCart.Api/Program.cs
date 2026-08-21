@@ -1,15 +1,19 @@
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using BingoCart.Api.Middleware;
 using BingoCart.Application.Auth;
 using BingoCart.Application.Bingos;
 using BingoCart.Application.Carritos;
+using BingoCart.Application.Compradores;
+using BingoCart.Application.Compras;
 using BingoCart.Application.Descubrimiento;
 using BingoCart.Application.Organizadores;
 using BingoCart.Infrastructure.Auth;
 using BingoCart.Infrastructure.Bingos;
 using BingoCart.Infrastructure.Carritos;
+using BingoCart.Infrastructure.Compras;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Descubrimiento;
 using BingoCart.Infrastructure.Identity;
@@ -38,7 +42,15 @@ builder.Services
     .ConfigurarPoliticaDePassword();
 
 builder.Services.AddScoped<IOrganizadorService, OrganizadorService>();
-builder.Services.AddScoped<IIdentityGateway, IdentityGateway>();
+
+// FEAT-009a, Block 3: IdentityGateway se registra como clase concreta Scoped y AMBOS puertos
+// (IIdentityGateway/ICompradorIdentityGateway) resuelven la MISMA instancia por scope (decisión de
+// PLAN) — un simple doble AddScoped<TInterfaz, IdentityGateway>() crearía dos instancias distintas
+// por request (una por tipo de servicio resuelto), funcionalmente inofensivo (ambas envuelven el
+// mismo UserManager/SignInManager, también Scoped) pero no lo que PLAN pidió textualmente.
+builder.Services.AddScoped<IdentityGateway>();
+builder.Services.AddScoped<IIdentityGateway>(sp => sp.GetRequiredService<IdentityGateway>());
+builder.Services.AddScoped<ICompradorIdentityGateway>(sp => sp.GetRequiredService<IdentityGateway>());
 
 // FEAT-003, Block 4: IBingoRepository/IBingoService Scoped (mismo lifetime que IOrganizadorService
 // — dependen de AppDbContext, que es Scoped). ICartonNumberGenerator Singleton: no tiene estado ni
@@ -71,6 +83,13 @@ builder.Services.AddScoped<ICarritoRepository, CarritoRepository>();
 // FEAT-008b, Block 3: ICarritoService Scoped, mismo lifetime que ICarritoRepository — depende de
 // IBingoRepository/IDescubrimientoRepository/ICarritoRepository, todos Scoped.
 builder.Services.AddScoped<ICarritoService, CarritoService>();
+
+// FEAT-009a, Block 3: ICompradorService/ICompraService/ICompraRepository Scoped, mismo lifetime que
+// el resto (dependen de AppDbContext/ICarritoRepository/IBingoRepository, todos Scoped).
+// ICompradorIdentityGateway ya se registra más arriba (mismo bloque que IIdentityGateway).
+builder.Services.AddScoped<ICompradorService, CompradorService>();
+builder.Services.AddScoped<ICompraRepository, CompraRepository>();
+builder.Services.AddScoped<ICompraService, CompraService>();
 
 // TimeProvider.System es el reloj real en producción; los tests inyectan un TestTimeProvider
 // propio en el JwtTokenService construido directamente (sin pasar por DI), spec FEAT-001b Block 1.
@@ -155,7 +174,12 @@ builder.Services
         };
     });
 
-builder.Services.AddControllers();
+// FEAT-009a, Block 3: primer uso de un enum (MedioPago) en un contrato JSON de este proyecto — sin
+// el converter, System.Text.Json espera/emite el valor numérico subyacente
+// ("medioPago": 0/1), no el nombre ("Efectivo"/"Transferencia") que documenta el API contract del
+// spec.
+builder.Services.AddControllers()
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 // Reemplaza el ValidationProblemDetails por defecto de ASP.NET Core por el mismo contrato de
 // error que usa ExceptionHandlingMiddleware ({ "error": "DatosInvalidos", "message": "..." }),
@@ -241,6 +265,30 @@ builder.Services.AddRateLimiter(options =>
             PermitLimit = 60,
             Window = TimeSpan.FromMinutes(5)
         }));
+
+    // Rate limiting sobre POST /api/compradores/registro y /login (spec FEAT-009a, Block 3):
+    // particionado por IP, mismo límite que "registro" (organizador) — cubre AMBAS acciones de
+    // CompradoresController con una sola política, a diferencia de OrganizadoresController (donde
+    // solo Registro tiene rate limit hoy, sin precedente de excepción para Login): acá el comprador
+    // es un endpoint nuevo, así que se agrega desde el principio a las dos acciones.
+    options.AddPolicy("compradores", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 5,
+            Window = TimeSpan.FromMinutes(1)
+        }));
+
+    // Rate limiting sobre POST /api/compras/confirmar (spec FEAT-009a, Block 3, NFR-02):
+    // particionado por el claim NameIdentifier del JWT (mismo mecanismo que "bingos"), NO por IP —
+    // este endpoint ya requiere autenticación (rol Comprador), a diferencia de "compradores".
+    options.AddPolicy("compras", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(5)
+        }));
 });
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -277,10 +325,18 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("frontend");
 
-app.UseRateLimiter();
-
+// UseRateLimiter() va DESPUÉS de UseAuthentication()/UseAuthorization() (corrective loop de
+// daw-arch-auditor, CODE Block 3, ronda 2): las políticas "compras" y "bingos" particionan por
+// httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) — si el rate limiter corre antes de
+// que la autenticación pueble HttpContext.User, ese claim siempre es null y todas las compras
+// caen en un único bucket compartido "unknown" en vez de un bucket por comprador. Las políticas
+// particionadas por IP ("registro", "compradores", "directorio", "descubrimiento", "carrito") no
+// dependen de HttpContext.User (solo de Connection.RemoteIpAddress), así que este reorden no les
+// cambia el comportamiento.
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.UseRateLimiter();
 
 app.MapControllers();
 
@@ -301,6 +357,20 @@ using (var scope = app.Services.CreateScope())
     if (!string.IsNullOrWhiteSpace(tdeMasterKeyPassword))
     {
         await dbContext.EnsureTdeEnabledAsync(tdeMasterKeyPassword);
+    }
+
+    // FEAT-009a, Block 3: siembra idempotente de los roles Organizador/Comprador — primer uso real
+    // de AspNetRoles/AspNetUserRoles del proyecto (decisión de PLAN). Mismo criterio "si no existe,
+    // crear" ya usado para TDE arriba: sin esto, IdentityGateway.CrearUsuarioAsync(Comprador, ...)
+    // fallaría en un `docker-compose up --build` desde un clone limpio al intentar
+    // UserManager.AddToRoleAsync con un rol inexistente.
+    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
+    foreach (var rol in new[] { "Organizador", "Comprador" })
+    {
+        if (!await roleManager.RoleExistsAsync(rol))
+        {
+            await roleManager.CreateAsync(new IdentityRole<Guid>(rol));
+        }
     }
 }
 

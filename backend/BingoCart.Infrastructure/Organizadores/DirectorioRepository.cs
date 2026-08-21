@@ -37,7 +37,10 @@ public sealed class DirectorioRepository : IDirectorioRepository
             .OrderBy(x => x.b.FechaSorteoUtc)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(x => new DirectorioOrganizadorItem(x.u.Id, x.u.NombreOrganizacion, x.b.NombreEvento, x.b.FechaSorteoUtc))
+            // `NombreOrganizacion` es nullable en el esquema desde FEAT-009a (el comprador no lo
+            // completa), pero acá `u` siempre proviene de `Bingo.OrganizadorId` — un organizador,
+            // que sí lo completa siempre — el `!` es seguro, no oculta un caso real de nulidad.
+            .Select(x => new DirectorioOrganizadorItem(x.u.Id, x.u.NombreOrganizacion!, x.b.NombreEvento, x.b.FechaSorteoUtc))
             .ToListAsync();
 
         return new DirectorioPaginado(items, total);
