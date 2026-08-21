@@ -1,3 +1,4 @@
+using BingoCart.Application.Carritos.Dtos;
 using BingoCart.Domain.Carritos;
 
 namespace BingoCart.Application.Carritos;
@@ -48,4 +49,21 @@ public interface ICarritoRepository
     /// previos o expirado por TTL → conjunto vacío.
     /// </summary>
     Task<IReadOnlySet<Guid>> ObtenerDescartadosAsync(string sesionId);
+
+    /// <summary>
+    /// Confirma atómicamente, de SOLO LECTURA (spec FEAT-009a, Block 1 — decisión de PLAN "CHECK y
+    /// COMMIT son dos operaciones separadas"), que cada <c>cartonId</c> del carrito de
+    /// <paramref name="sesionId"/> sigue teniendo <c>reservado:carton:{cartonId} == sesionId</c>.
+    /// Nunca borra ninguna clave, en ningún caso. Si todos son válidos devuelve
+    /// <c>EsValido: true</c> con los ítems; si alguno no lo es, devuelve <c>EsValido: false</c> con
+    /// la lista completa de <c>cartonId</c> inválidos.
+    /// </summary>
+    Task<RevalidacionCarrito> RevalidarReservasAsync(string sesionId);
+
+    /// <summary>
+    /// Borra <c>carrito:{sesionId}</c> y cada <c>reservado:carton:{cartonId}</c> de
+    /// <paramref name="cartonIds"/> — SOLO se invoca después de que la transacción SQL de la compra
+    /// commiteó exitosamente (decisión de PLAN, ver spec "Revalidación atómica de Redis").
+    /// </summary>
+    Task LiberarCarritoConfirmadoAsync(string sesionId, IReadOnlyCollection<Guid> cartonIds);
 }

@@ -38,21 +38,43 @@ public class JwtTokenServiceTests
     };
 
     [Fact]
-    public void GenerarToken_ConTimeProviderSystem_ProduceUnTokenValidoConLosClaimsEsperados()
+    public void GenerarToken_ConRolOrganizador_ProduceUnTokenValidoConLosClaimsEsperados()
     {
+        // Regresión (spec FEAT-009a, Block 1): el comportamiento con rol "Organizador" es idéntico
+        // al de antes de este ticket — el JWT sigue conteniendo NameIdentifier/Email, ahora además
+        // Role.
         var settings = CrearSettings();
         var service = new JwtTokenService(Options.Create(settings), TimeProvider.System);
         var organizadorId = Guid.NewGuid();
         const string mail = "organizador@example.com";
 
-        var resultado = service.GenerarToken(organizadorId, mail);
+        var resultado = service.GenerarToken(organizadorId, mail, "Organizador");
 
         var handler = new JwtSecurityTokenHandler();
         var principal = handler.ValidateToken(resultado.Token, CrearValidationParameters(settings), out _);
 
         Assert.Equal(organizadorId.ToString(), principal.FindFirstValue(ClaimTypes.NameIdentifier));
         Assert.Equal(mail, principal.FindFirstValue(ClaimTypes.Email));
+        Assert.Equal("Organizador", principal.FindFirstValue(ClaimTypes.Role));
         Assert.True(resultado.ExpiraEnUtc > DateTime.UtcNow);
+    }
+
+    [Fact]
+    public void GenerarToken_ConRolComprador_ElJwtDecodificadoContieneElClaimRoleConEseValor()
+    {
+        var settings = CrearSettings();
+        var service = new JwtTokenService(Options.Create(settings), TimeProvider.System);
+        var compradorId = Guid.NewGuid();
+        const string mail = "comprador@example.com";
+
+        var resultado = service.GenerarToken(compradorId, mail, "Comprador");
+
+        var handler = new JwtSecurityTokenHandler();
+        var principal = handler.ValidateToken(resultado.Token, CrearValidationParameters(settings), out _);
+
+        Assert.Equal(compradorId.ToString(), principal.FindFirstValue(ClaimTypes.NameIdentifier));
+        Assert.Equal(mail, principal.FindFirstValue(ClaimTypes.Email));
+        Assert.Equal("Comprador", principal.FindFirstValue(ClaimTypes.Role));
     }
 
     [Fact]
@@ -62,7 +84,7 @@ public class JwtTokenServiceTests
         var relojEnElPasado = new TestTimeProvider(DateTimeOffset.UtcNow.AddMinutes(-61));
         var service = new JwtTokenService(Options.Create(settings), relojEnElPasado);
 
-        var resultado = service.GenerarToken(Guid.NewGuid(), "organizador@example.com");
+        var resultado = service.GenerarToken(Guid.NewGuid(), "organizador@example.com", "Organizador");
 
         var handler = new JwtSecurityTokenHandler();
         Assert.Throws<SecurityTokenExpiredException>(

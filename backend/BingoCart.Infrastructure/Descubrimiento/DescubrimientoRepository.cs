@@ -47,10 +47,18 @@ public sealed class DescubrimientoRepository : IDescubrimientoRepository
         // interpolado dispara el analizador EF1002 (no distingue un hueco seguro de uno inseguro).
         // `{0}`/`{1}` siguen siendo los placeholders propios de `FromSqlRaw`, parametrizados por EF
         // Core — `clausulaExclusion` es texto ya validado (solo GUIDs), no una interpolación.
+        // Subquery NOT EXISTS nueva (spec FEAT-009a, Block 1, FR-07): texto SQL COMPLETAMENTE FIJO,
+        // sin ningún valor interpolado ni concatenado — a diferencia de `clausulaExclusion` (arriba),
+        // que sí concatena GUIDs de `excluirCartonIds`. Un cartón con una fila en `CompraCartones`
+        // nunca vuelve a aparecer en descubrimiento global (threat model FEAT-009a, R-05: evaluado
+        // como más seguro que la cláusula NOT IN existente, no hay ninguna superficie de inyección
+        // que auditar porque no hay ningún dato variable en este string).
         var sql = "SELECT TOP ({0}) c.* " +
                    "FROM Cartones c " +
                    "INNER JOIN Bingos b ON b.Id = c.BingoId " +
-                   "WHERE b.FechaSorteoUtc > {1} " + clausulaExclusion + " " +
+                   "WHERE b.FechaSorteoUtc > {1} " +
+                   "AND NOT EXISTS (SELECT 1 FROM CompraCartones cc WHERE cc.CartonId = c.Id) " +
+                   clausulaExclusion + " " +
                    "ORDER BY NEWID()";
 
         return await _context.Cartones
@@ -77,9 +85,13 @@ public sealed class DescubrimientoRepository : IDescubrimientoRepository
     {
         var clausulaExclusion = ConstruirClausulaExclusion(excluirCartonIds);
 
+        // Misma subquery NOT EXISTS fija que ObtenerAleatoriosGlobalAsync (arriba) — ver ese
+        // comentario para el detalle de por qué no es una superficie de inyección.
         var sql = "SELECT TOP ({0}) c.* " +
                    "FROM Cartones c " +
-                   "WHERE c.BingoId = {1} " + clausulaExclusion + " " +
+                   "WHERE c.BingoId = {1} " +
+                   "AND NOT EXISTS (SELECT 1 FROM CompraCartones cc WHERE cc.CartonId = c.Id) " +
+                   clausulaExclusion + " " +
                    "ORDER BY NEWID()";
 
         return await _context.Cartones
@@ -107,7 +119,10 @@ public sealed class DescubrimientoRepository : IDescubrimientoRepository
         return await _context.Bingos
             .Join(_context.Users, b => b.OrganizadorId, u => u.Id, (b, u) => new { b, u })
             .Where(x => bingoIds.Contains(x.b.Id))
-            .Select(x => new BingoResumen(x.b.Id, x.u.NombreOrganizacion, x.b.NombreEvento, x.b.CostoPorCarton, x.b.FechaSorteoUtc))
+            // `NombreOrganizacion` es nullable en el esquema desde FEAT-009a (el comprador no lo
+            // completa), pero acá `u` siempre proviene de `Bingo.OrganizadorId` — un organizador,
+            // que sí lo completa siempre — el `!` es seguro, no oculta un caso real de nulidad.
+            .Select(x => new BingoResumen(x.b.Id, x.u.NombreOrganizacion!, x.b.NombreEvento, x.b.CostoPorCarton, x.b.FechaSorteoUtc))
             .ToListAsync();
     }
 }

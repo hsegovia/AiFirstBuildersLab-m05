@@ -1,5 +1,6 @@
 using System.Globalization;
 using BingoCart.Application.Carritos;
+using BingoCart.Application.Carritos.Dtos;
 using BingoCart.Domain.Carritos;
 using StackExchange.Redis;
 
@@ -51,6 +52,51 @@ public sealed class CarritoRepository : ICarritoRepository
         local cartonIdsEnCarrito = redis.call('HKEYS', carritoKey)
         for _, id in ipairs(cartonIdsEnCarrito) do
             redis.call('EXPIRE', 'reservado:carton:' .. id, ttlSegundos)
+        end
+
+        return 1
+    ";
+
+    // Revalidación de SOLO LECTURA (spec FEAT-009a, Block 1, decisión de PLAN "CHECK y COMMIT son
+    // dos operaciones separadas") — nunca ejecuta SET/DEL/EXPIRE, solo GET sobre cada
+    // `reservado:carton:{cartonId}` del hash `carrito:{sesionId}`. Devuelve dos listas paralelas
+    // (cartonIds válidos con su precio, cartonIds inválidos) para que el llamador (.NET) arme el DTO
+    // sin una segunda llamada a Redis. Mismo criterio de seguridad que ScriptIntentarAgregar:
+    // `sesionId` viaja EXCLUSIVAMENTE vía ARGV, nunca concatenado al cuerpo del script.
+    private const string ScriptRevalidar = @"
+        local carritoKey = KEYS[1]
+        local sesionId = ARGV[1]
+
+        local entradas = redis.call('HGETALL', carritoKey)
+        local validos = {}
+        local invalidos = {}
+
+        for i = 1, #entradas, 2 do
+            local cartonId = entradas[i]
+            local precioUnitario = entradas[i + 1]
+            local propietarioActual = redis.call('GET', 'reservado:carton:' .. cartonId)
+
+            if propietarioActual == sesionId then
+                table.insert(validos, cartonId)
+                table.insert(validos, precioUnitario)
+            else
+                table.insert(invalidos, cartonId)
+            end
+        end
+
+        return { validos, invalidos }
+    ";
+
+    // Libera un carrito ya confirmado (spec FEAT-009a, Block 1) — SOLO se invoca después de que la
+    // transacción SQL de la compra commiteó exitosamente (decisión de PLAN, orden CHECK→COMMIT→
+    // RELEASE). `cartonIds` llega vía ARGV como lista variable (ARGV[1] en adelante), nunca
+    // concatenado al cuerpo del script.
+    private const string ScriptLiberar = @"
+        local carritoKey = KEYS[1]
+        redis.call('DEL', carritoKey)
+
+        for i = 1, #ARGV do
+            redis.call('DEL', 'reservado:carton:' .. ARGV[i])
         end
 
         return 1
@@ -129,6 +175,57 @@ public sealed class CarritoRepository : ICarritoRepository
         var miembros = await db.SetMembersAsync(ClaveDescartados(sesionId));
 
         return miembros.Select(m => Guid.Parse(m.ToString())).ToHashSet();
+    }
+
+    public async Task<RevalidacionCarrito> RevalidarReservasAsync(string sesionId)
+    {
+        var db = _connectionMultiplexer.GetDatabase();
+
+        var resultado = await db.ScriptEvaluateAsync(
+            ScriptRevalidar,
+            new RedisKey[] { ClaveCarrito(sesionId) },
+            new RedisValue[] { sesionId });
+
+        // `!` seguro en todo este método: `ScriptRevalidar` siempre devuelve la estructura fija de
+        // dos elementos `{ validos, invalidos }`, y cada elemento dentro de esos arreglos es en sí
+        // mismo un string de Redis (nunca `nil`) — el script sólo incluye un cartónId en `validos`
+        // o `invalidos` cuando encontró la clave correspondiente con `HGETALL`/`GET` y devolvió su
+        // valor; no hay camino en el script donde devuelva `nil` para un elemento presente en
+        // alguno de los dos arreglos.
+        var arreglos = (RedisResult[])resultado!;
+        var validos = (RedisResult[])arreglos[0]!;
+        var invalidos = (RedisResult[])arreglos[1]!;
+
+        var cartonIdsInvalidos = invalidos
+            .Select(v => Guid.Parse((string)v!))
+            .ToList();
+
+        if (cartonIdsInvalidos.Count > 0)
+        {
+            return new RevalidacionCarrito(false, Array.Empty<ItemCarrito>(), cartonIdsInvalidos);
+        }
+
+        var items = new List<ItemCarrito>();
+        for (var i = 0; i < validos.Length; i += 2)
+        {
+            var cartonId = Guid.Parse((string)validos[i]!);
+            var precioUnitario = decimal.Parse((string)validos[i + 1]!, CultureInfo.InvariantCulture);
+            items.Add(new ItemCarrito(cartonId, precioUnitario));
+        }
+
+        return new RevalidacionCarrito(true, items, Array.Empty<Guid>());
+    }
+
+    public async Task LiberarCarritoConfirmadoAsync(string sesionId, IReadOnlyCollection<Guid> cartonIds)
+    {
+        var db = _connectionMultiplexer.GetDatabase();
+
+        var argumentos = cartonIds.Select(id => (RedisValue)id.ToString()).ToArray();
+
+        await db.ScriptEvaluateAsync(
+            ScriptLiberar,
+            new RedisKey[] { ClaveCarrito(sesionId) },
+            argumentos);
     }
 
     private static string ClaveCarrito(string sesionId) => $"{PrefijoCarrito}{sesionId}";

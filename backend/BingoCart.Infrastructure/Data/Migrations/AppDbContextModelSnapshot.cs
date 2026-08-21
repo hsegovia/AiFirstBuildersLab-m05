@@ -80,6 +80,55 @@ namespace BingoCart.Infrastructure.Data.Migrations
                     b.ToTable("Cartones");
                 });
 
+            modelBuilder.Entity("BingoCart.Domain.Compras.Compra", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CompradorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("FechaCreacionUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("MedioPago")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("OrganizadorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompradorId");
+
+                    b.HasIndex("OrganizadorId");
+
+                    b.ToTable("Compras");
+                });
+
+            modelBuilder.Entity("BingoCart.Infrastructure.Data.CompraCarton", b =>
+                {
+                    b.Property<Guid>("CartonId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CompraId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("PrecioUnitario")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.HasKey("CartonId");
+
+                    b.HasIndex("CompraId");
+
+                    b.ToTable("CompraCartones", (string)null);
+                });
+
             modelBuilder.Entity("BingoCart.Infrastructure.Identity.ApplicationUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -88,6 +137,10 @@ namespace BingoCart.Infrastructure.Data.Migrations
 
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("int");
+
+                    b.Property<string>("Apellido")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
@@ -111,8 +164,11 @@ namespace BingoCart.Infrastructure.Data.Migrations
                     b.Property<DateTimeOffset?>("LockoutEnd")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("Nombre")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<string>("NombreOrganizacion")
-                        .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
@@ -137,7 +193,6 @@ namespace BingoCart.Infrastructure.Data.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Telefono")
-                        .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
@@ -300,6 +355,15 @@ namespace BingoCart.Infrastructure.Data.Migrations
                     b.HasOne("BingoCart.Domain.Bingos.Bingo", null)
                         .WithMany()
                         .HasForeignKey("BingoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("BingoCart.Infrastructure.Data.CompraCarton", b =>
+                {
+                    b.HasOne("BingoCart.Domain.Compras.Compra", null)
+                        .WithMany()
+                        .HasForeignKey("CompraId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

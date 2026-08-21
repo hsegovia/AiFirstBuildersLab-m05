@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using BingoCart.Application.Descubrimiento;
 using BingoCart.Domain.Bingos;
+using BingoCart.Domain.Compras;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Descubrimiento;
 using BingoCart.Infrastructure.Identity;
@@ -333,5 +334,66 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
 
         Assert.Equal(3, resultado.Count);
+    }
+
+    // Helper: sembrar una fila mínima en CompraCartones (spec FEAT-009a, Block 1) para simular
+    // "cartón ya vendido" sin necesitar CompraRepository completo — misma FK lógica ya usada en
+    // BingoRepositoryTests.
+    private async Task SembrarCartonVendidoAsync(Guid organizadorId, Guid cartonId)
+    {
+        var compra = Compra.Crear(
+            organizadorId,
+            Guid.NewGuid(),
+            new[] { new ItemCompra(Guid.NewGuid(), 100m) },
+            MedioPago.Efectivo,
+            DateTime.UtcNow);
+
+        _context.Compras.Add(compra);
+        _context.CompraCartones.Add(new CompraCarton { CompraId = compra.Id, CartonId = cartonId, PrecioUnitario = 100m });
+        await _context.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task ObtenerAleatoriosGlobalAsync_ConUnCartonYaVendidoDeCincoDeUnBingoActivo_NuncaLoDevuelveAunqueNoEsteEnExcluirCartonIds()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Con Vendido Global");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc);
+        var cartones = NuevosCartones(bingo.Id, 5);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.AddRange(cartones);
+        await _context.SaveChangesAsync();
+
+        var cartonVendido = cartones[0];
+        await SembrarCartonVendidoAsync(organizador.Id, cartonVendido.Id);
+
+        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
+
+        Assert.Equal(4, resultado.Count);
+        Assert.DoesNotContain(resultado, c => c.Id == cartonVendido.Id);
+    }
+
+    [Fact]
+    public async Task ObtenerAleatoriosDeBingoAsync_ConUnCartonYaVendidoDeCincoDelMismoBingo_NuncaLoDevuelveAunqueNoEsteEnExcluirCartonIds()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Con Vendido Por Bingo");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc);
+        var cartones = NuevosCartones(bingo.Id, 5);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.AddRange(cartones);
+        await _context.SaveChangesAsync();
+
+        var cartonVendido = cartones[0];
+        await SembrarCartonVendidoAsync(organizador.Id, cartonVendido.Id);
+
+        var resultado = await _repository.ObtenerAleatoriosDeBingoAsync(bingo.Id, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
+
+        Assert.Equal(4, resultado.Count);
+        Assert.DoesNotContain(resultado, c => c.Id == cartonVendido.Id);
     }
 }

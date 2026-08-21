@@ -433,7 +433,8 @@ public sealed class OrganizadoresControllerTests : IAsyncLifetime
         });
         var timeProvider = new TestTimeProvider(DateTimeOffset.UtcNow.AddMinutes(-61));
         var jwtTokenService = new JwtTokenService(jwtSettings, timeProvider);
-        var tokenExpirado = jwtTokenService.GenerarToken(Guid.NewGuid(), "expirado@example.com").Token;
+        // spec FEAT-009a, Block 1: GenerarToken gana un tercer parámetro `rol`.
+        var tokenExpirado = jwtTokenService.GenerarToken(Guid.NewGuid(), "expirado@example.com", "Organizador").Token;
 
         using var clienteSinCookiesAutomaticas = _factory.CreateClient();
         var request = new HttpRequestMessage(HttpMethod.Get, "/api/organizadores/perfil");

@@ -4,7 +4,18 @@ using BingoCart.Domain.Auth.Exceptions;
 using BingoCart.Domain.Bingos.Exceptions;
 using BingoCart.Domain.Carritos.Exceptions;
 using BingoCart.Domain.Common;
+using BingoCart.Domain.Compras.Exceptions;
 using BingoCart.Domain.Organizadores.Exceptions;
+// Ambos bounded contexts (Organizadores/Compradores) tienen sus propias excepciones con el MISMO
+// nombre de clase (CuitInvalidoException/MailYaRegistradoException/PasswordInvalidaException,
+// decisión de PLAN spec FEAT-009a: "cada bounded context tiene sus propias excepciones") — alias
+// explícitos para poder tener un catch de cada una sin ambigüedad de compilación.
+using OrganizadorCuitInvalidoException = BingoCart.Domain.Organizadores.Exceptions.CuitInvalidoException;
+using OrganizadorMailYaRegistradoException = BingoCart.Domain.Organizadores.Exceptions.MailYaRegistradoException;
+using OrganizadorPasswordInvalidaException = BingoCart.Domain.Organizadores.Exceptions.PasswordInvalidaException;
+using CompradorCuitInvalidoException = BingoCart.Domain.Compradores.Exceptions.CuitInvalidoException;
+using CompradorMailYaRegistradoException = BingoCart.Domain.Compradores.Exceptions.MailYaRegistradoException;
+using CompradorPasswordInvalidaException = BingoCart.Domain.Compradores.Exceptions.PasswordInvalidaException;
 
 namespace BingoCart.Api.Middleware;
 
@@ -34,7 +45,7 @@ public sealed class ExceptionHandlingMiddleware
         {
             await _next(context);
         }
-        catch (CuitInvalidoException ex)
+        catch (OrganizadorCuitInvalidoException ex)
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "CuitInvalido");
         }
@@ -42,13 +53,51 @@ public sealed class ExceptionHandlingMiddleware
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "TelefonoInvalido");
         }
-        catch (PasswordInvalidaException ex)
+        catch (OrganizadorPasswordInvalidaException ex)
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "PasswordInvalida");
         }
-        catch (MailYaRegistradoException ex)
+        catch (OrganizadorMailYaRegistradoException ex)
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "MailYaRegistrado");
+        }
+        // Excepciones de comprador (spec FEAT-009a, Block 3) — mismo error/status que sus
+        // equivalentes de organizador arriba, distinto tipo concreto (alias de using).
+        catch (CompradorCuitInvalidoException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "CuitInvalido");
+        }
+        catch (CompradorPasswordInvalidaException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "PasswordInvalida");
+        }
+        catch (CompradorMailYaRegistradoException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "MailYaRegistrado");
+        }
+        catch (CarritoVacioException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "CarritoVacio");
+        }
+        catch (ReservaCarritoInvalidaException ex)
+        {
+            // Único catch que agrega un campo extra al body de error (cartonIdsInvalidos, spec
+            // FEAT-009a Block 3, API contract) — el resto de los catches de esta clase solo
+            // necesita {error, message}, por eso no comparten ManejarExcepcionDeDominioAsync acá.
+            _logger.LogWarning(
+                "Excepción de dominio. Tipo: {ExceptionType}. CorrelationId: {CorrelationId}",
+                ex.GetType().Name,
+                context.TraceIdentifier);
+
+            context.Response.ContentType = "application/json";
+            context.Response.StatusCode = (int)HttpStatusCode.Conflict;
+            var body = JsonSerializer.Serialize(new
+            {
+                error = "ReservaCarritoInvalida",
+                message = ex.Message,
+                cartonIdsInvalidos = ex.CartonIdsInvalidos
+            });
+            await context.Response.WriteAsync(body);
         }
         catch (CredencialesInvalidasException ex)
         {
