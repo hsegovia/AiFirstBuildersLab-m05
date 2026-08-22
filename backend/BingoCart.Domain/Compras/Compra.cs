@@ -14,6 +14,14 @@ public sealed class Compra
 
     public Guid CompradorId { get; private init; }
 
+    /// <summary>
+    /// Agrupa todas las <see cref="Compra"/> generadas por una misma confirmación de carrito
+    /// (FEAT-009b) — cuando el carrito mezcla cartones de varios organizadores, todas las
+    /// <see cref="Compra"/> resultantes comparten este valor, para armar un único mail de
+    /// confirmación en lugar de uno por organizador.
+    /// </summary>
+    public Guid ConfirmacionId { get; private init; }
+
     public IReadOnlyList<ItemCompra> Items { get; private init; } = Array.Empty<ItemCompra>();
 
     public MedioPago MedioPago { get; private init; }
@@ -36,6 +44,7 @@ public sealed class Compra
     public static Compra Crear(
         Guid organizadorId,
         Guid compradorId,
+        Guid confirmacionId,
         IReadOnlyList<ItemCompra> items,
         MedioPago medioPago,
         DateTime ahoraUtc)
@@ -50,6 +59,7 @@ public sealed class Compra
             Id = Guid.NewGuid(),
             OrganizadorId = organizadorId,
             CompradorId = compradorId,
+            ConfirmacionId = confirmacionId,
             Items = items,
             MedioPago = medioPago,
             Estado = EstadoCompra.PendienteConfirmacionPago,

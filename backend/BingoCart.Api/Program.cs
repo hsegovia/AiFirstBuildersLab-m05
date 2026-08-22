@@ -17,6 +17,7 @@ using BingoCart.Infrastructure.Compras;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Descubrimiento;
 using BingoCart.Infrastructure.Identity;
+using BingoCart.Infrastructure.Notificaciones;
 using BingoCart.Infrastructure.Organizadores;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -25,6 +26,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using QuestPDF.Infrastructure;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -90,6 +92,27 @@ builder.Services.AddScoped<ICarritoService, CarritoService>();
 builder.Services.AddScoped<ICompradorService, CompradorService>();
 builder.Services.AddScoped<ICompraRepository, CompraRepository>();
 builder.Services.AddScoped<ICompraService, CompraService>();
+
+// FEAT-009b, Block 3: outbox de mail de confirmación de compra. IEnvioMailRepository/
+// IEnvioMailService Scoped, mismo lifetime que el resto (dependen de AppDbContext). IEmailSender/
+// ICartonPdfRenderer también Scoped por consistencia con el resto de los adaptadores de este
+// bloque, aunque ninguno de los dos tenga estado propio — no hay precedente en el proyecto de un
+// adaptador sin estado registrado Singleton salvo los explícitamente documentados como tal
+// (ICartonNumberGenerator, IJwtTokenService).
+builder.Services.AddScoped<IEnvioMailRepository, EnvioMailRepository>();
+builder.Services.AddScoped<IEmailSender, MailKitEmailSender>();
+builder.Services.AddScoped<ICartonPdfRenderer, QuestPdfCartonRenderer>();
+builder.Services.AddScoped<IEnvioMailService, EnvioMailService>();
+
+// Config de SMTP (Smtp:*), mismo patrón de binding simple ya usado para Redis/Jwt en este archivo.
+builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection("Smtp"));
+
+// BackgroundService que procesa el outbox cada 1 minuto (NFR-01) — ver EnvioMailBackgroundService.
+builder.Services.AddHostedService<EnvioMailBackgroundService>();
+
+// Bootstrap único de licencia Community de QuestPDF (requerido desde QuestPDF 2023+), como línea
+// explícita propia y no implícita dentro del wiring de DI de arriba.
+QuestPDF.Settings.License = LicenseType.Community;
 
 // TimeProvider.System es el reloj real en producción; los tests inyectan un TestTimeProvider
 // propio en el JwtTokenService construido directamente (sin pasar por DI), spec FEAT-001b Block 1.

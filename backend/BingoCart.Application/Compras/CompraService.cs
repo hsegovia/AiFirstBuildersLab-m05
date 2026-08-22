@@ -21,19 +21,22 @@ public sealed class CompraService : ICompraService
     private readonly ICompraRepository _compraRepository;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<CompraService> _logger;
+    private readonly IEnvioMailService _envioMailService;
 
     public CompraService(
         ICarritoRepository carritoRepository,
         IBingoRepository bingoRepository,
         ICompraRepository compraRepository,
         TimeProvider timeProvider,
-        ILogger<CompraService> logger)
+        ILogger<CompraService> logger,
+        IEnvioMailService envioMailService)
     {
         _carritoRepository = carritoRepository;
         _bingoRepository = bingoRepository;
         _compraRepository = compraRepository;
         _timeProvider = timeProvider;
         _logger = logger;
+        _envioMailService = envioMailService;
     }
 
     public async Task<ConfirmarCompraResponse> ConfirmarCompraAsync(string sesionId, Guid compradorId, MedioPago medioPago)
@@ -71,6 +74,11 @@ public sealed class CompraService : ICompraService
 
         var ahoraUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
+        // Compartido por TODAS las Compra que resulten de esta confirmación (FEAT-009b, FR-01):
+        // así, aunque el carrito mezcle cartones de organizadores distintos, EnvioMailService las
+        // agrupa en un único mail en lugar de uno por organizador.
+        var confirmacionId = Guid.NewGuid();
+
         // (3)/(4) Agrupa por organizador: una Compra independiente por cada uno (AC-03).
         var compras = new List<Compra>();
         var comprasCreadas = new List<CompraCreada>();
@@ -80,7 +88,7 @@ public sealed class CompraService : ICompraService
                 .Select(item => new ItemCompra(item.CartonId, item.PrecioUnitario))
                 .ToList();
 
-            var compra = Compra.Crear(grupo.Key, compradorId, itemsCompra, medioPago, ahoraUtc);
+            var compra = Compra.Crear(grupo.Key, compradorId, confirmacionId, itemsCompra, medioPago, ahoraUtc);
             compras.Add(compra);
 
             var nombreOrganizacion = datosPorCartonId[grupo.First().CartonId].NombreOrganizacion;
@@ -98,6 +106,24 @@ public sealed class CompraService : ICompraService
         // ReservaCarritoInvalidaException dentro de CompraRepository, no acá — Application no conoce
         // EF Core (corrective round 2, spec FEAT-009a Block 2). Se deja propagar sin capturar.
         await _compraRepository.CrearVariasAsync(compras);
+
+        // Encola el mail de confirmación (FEAT-009b, FR-02) recién después del commit SQL exitoso
+        // — best-effort, nunca bloquea ni hace fallar la respuesta HTTP (FR-07/AC-06): la compra ya
+        // está persistida independientemente de si el mail llega a encolarse. Mismo patrón
+        // defensivo ya aprobado para el paso RELEASE (liberar Redis) unas líneas más abajo: catch
+        // genérico porque Application no conoce el tipo concreto que pueda lanzar la implementación
+        // de Infrastructure, log de warning, nunca relanza.
+        try
+        {
+            await _envioMailService.EncolarAsync(confirmacionId, compradorId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "No se pudo encolar el mail de confirmación para la confirmación {ConfirmacionId}.",
+                confirmacionId);
+        }
 
         // (6) RELEASE: solo después del commit SQL exitoso. Si falla, la compra ya quedó persistida
         // igual — se loguea como warning (nunca se relanza) y el TTL de 5 minutos ya existente limpia

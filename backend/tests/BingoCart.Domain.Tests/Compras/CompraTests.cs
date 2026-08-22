@@ -20,6 +20,7 @@ public class CompraTests
         Assert.Throws<ArgumentException>(() => Compra.Crear(
             organizadorId: Guid.NewGuid(),
             compradorId: Guid.NewGuid(),
+            confirmacionId: Guid.NewGuid(),
             items: Array.Empty<ItemCompra>(),
             medioPago: MedioPago.Efectivo,
             ahoraUtc: DateTime.UtcNow));
@@ -30,9 +31,10 @@ public class CompraTests
     {
         var organizadorId = Guid.NewGuid();
         var compradorId = Guid.NewGuid();
+        var confirmacionId = Guid.NewGuid();
         var ahoraUtc = DateTime.UtcNow;
 
-        var compra = Compra.Crear(organizadorId, compradorId, UnItem, MedioPago.Transferencia, ahoraUtc);
+        var compra = Compra.Crear(organizadorId, compradorId, confirmacionId, UnItem, MedioPago.Transferencia, ahoraUtc);
 
         Assert.NotEqual(Guid.Empty, compra.Id);
         Assert.Equal(organizadorId, compra.OrganizadorId);
@@ -41,5 +43,21 @@ public class CompraTests
         Assert.Equal(MedioPago.Transferencia, compra.MedioPago);
         Assert.Equal(EstadoCompra.PendienteConfirmacionPago, compra.Estado);
         Assert.Equal(ahoraUtc, compra.FechaCreacionUtc);
+    }
+
+    [Fact]
+    public void Crear_ExponeConfirmacionId()
+    {
+        var confirmacionId = Guid.NewGuid();
+
+        var compra = Compra.Crear(
+            organizadorId: Guid.NewGuid(),
+            compradorId: Guid.NewGuid(),
+            confirmacionId: confirmacionId,
+            items: UnItem,
+            medioPago: MedioPago.Efectivo,
+            ahoraUtc: DateTime.UtcNow);
+
+        Assert.Equal(confirmacionId, compra.ConfirmacionId);
     }
 }

@@ -36,6 +36,11 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
     // (`Carton` tampoco es una colección navegable de `Bingo`, es un DbSet propio).
     public DbSet<CompraCarton> CompraCartones => Set<CompraCarton>();
 
+    // Outbox de mail de confirmación de compra (spec FEAT-009b, Block 1: entidad de Domain; Block 3:
+    // mapeo EF Core). `EnvioMail` sí se mapea completa (a diferencia de `Compra.Items`) porque no
+    // tiene ninguna colección de navegación que EF Core no pueda materializar.
+    public DbSet<EnvioMail> EnviosMail => Set<EnvioMail>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -177,6 +182,24 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
                 .HasForeignKey(cc => cc.CompraId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired();
+        });
+
+        builder.Entity<EnvioMail>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            // Mismo patrón que `MedioPago`/`EstadoCompra` (mapeo por convención de EF Core: un enum
+            // se persiste como `int` sin necesitar un `HasConversion` explícito) — se deja explícito
+            // acá solo para documentar la intención junto al índice de abajo, que sí depende de esta
+            // columna.
+            entity.Property(e => e.Estado)
+                .HasConversion<int>();
+
+            // Soporta el filtro de `ObtenerPendientesAsync` (spec FEAT-009b, Block 3, FR-08):
+            // `WHERE Estado = Pendiente AND (ProximoIntentoUtc IS NULL OR ProximoIntentoUtc <=
+            // @ahoraUtc)`. Sin este índice, el `BackgroundService` (cada 1 minuto, NFR-01) forzaría
+            // un table scan de `EnviosMail` en cada tick.
+            entity.HasIndex(e => new { e.Estado, e.ProximoIntentoUtc });
         });
     }
 }

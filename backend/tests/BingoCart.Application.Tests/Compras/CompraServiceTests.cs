@@ -24,14 +24,16 @@ public class CompraServiceTests
         Mock<ICarritoRepository> carritoRepository,
         Mock<IBingoRepository> bingoRepository,
         Mock<ICompraRepository> compraRepository,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Mock<IEnvioMailService>? envioMailService = null)
     {
         return new CompraService(
             carritoRepository.Object,
             bingoRepository.Object,
             compraRepository.Object,
             timeProvider ?? TimeProvider.System,
-            NullLogger<CompraService>.Instance);
+            NullLogger<CompraService>.Instance,
+            (envioMailService ?? new Mock<IEnvioMailService>()).Object);
     }
 
     [Fact]
@@ -235,5 +237,152 @@ public class CompraServiceTests
         carritoRepository.Verify(
             r => r.LiberarCarritoConfirmadoAsync(It.IsAny<string>(), It.IsAny<IReadOnlyCollection<Guid>>()),
             Times.Never());
+    }
+
+    [Fact]
+    public async Task ConfirmarCompraAsync_ConDosOrganizadores_UsaElMismoConfirmacionIdEnAmbasCompras()
+    {
+        var sesionId = Guid.NewGuid().ToString();
+        var compradorId = Guid.NewGuid();
+        var organizadorUno = Guid.NewGuid();
+        var organizadorDos = Guid.NewGuid();
+
+        var cartonUno = Guid.NewGuid();
+        var cartonDos = Guid.NewGuid();
+
+        var items = new List<ItemCarrito>
+        {
+            new(cartonUno, 100m),
+            new(cartonDos, 200m),
+        };
+
+        var carritoRepository = new Mock<ICarritoRepository>();
+        var bingoRepository = new Mock<IBingoRepository>();
+        var compraRepository = new Mock<ICompraRepository>();
+
+        carritoRepository.Setup(r => r.ObtenerItemsAsync(sesionId)).ReturnsAsync(items);
+        carritoRepository
+            .Setup(r => r.RevalidarReservasAsync(sesionId))
+            .ReturnsAsync(new RevalidacionCarrito(true, items, Array.Empty<Guid>()));
+        bingoRepository
+            .Setup(r => r.ObtenerParaConfirmarCompraAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
+            .ReturnsAsync(new List<CartonParaConfirmarCompra>
+            {
+                new(cartonUno, Guid.NewGuid(), organizadorUno, "Club Uno", "Bingo Uno"),
+                new(cartonDos, Guid.NewGuid(), organizadorDos, "Club Dos", "Bingo Dos"),
+            });
+
+        List<Domain.Compras.Compra>? comprasRecibidas = null;
+        compraRepository
+            .Setup(r => r.CrearVariasAsync(It.IsAny<IReadOnlyList<Domain.Compras.Compra>>()))
+            .Callback<IReadOnlyList<Domain.Compras.Compra>>(compras => comprasRecibidas = compras.ToList())
+            .Returns(Task.CompletedTask);
+
+        var service = CrearService(carritoRepository, bingoRepository, compraRepository);
+
+        await service.ConfirmarCompraAsync(sesionId, compradorId, MedioPago.Transferencia);
+
+        Assert.NotNull(comprasRecibidas);
+        Assert.Equal(2, comprasRecibidas!.Count);
+
+        var confirmacionIds = comprasRecibidas.Select(c => c.ConfirmacionId).Distinct().ToList();
+        Assert.Single(confirmacionIds);
+        Assert.NotEqual(Guid.Empty, confirmacionIds[0]);
+    }
+
+    [Fact]
+    public async Task ConfirmarCompraAsync_Exitoso_InvocaEncolarAsyncDespuesDeCrearVariasAsync()
+    {
+        var sesionId = Guid.NewGuid().ToString();
+        var compradorId = Guid.NewGuid();
+        var organizadorId = Guid.NewGuid();
+        var cartonId = Guid.NewGuid();
+
+        var items = new List<ItemCarrito> { new(cartonId, 100m) };
+
+        var carritoRepository = new Mock<ICarritoRepository>();
+        var bingoRepository = new Mock<IBingoRepository>();
+        var compraRepository = new Mock<ICompraRepository>();
+        var envioMailService = new Mock<IEnvioMailService>(MockBehavior.Strict);
+
+        var secuencia = new MockSequence();
+
+        carritoRepository.Setup(r => r.ObtenerItemsAsync(sesionId)).ReturnsAsync(items);
+        carritoRepository
+            .Setup(r => r.RevalidarReservasAsync(sesionId))
+            .ReturnsAsync(new RevalidacionCarrito(true, items, Array.Empty<Guid>()));
+        bingoRepository
+            .Setup(r => r.ObtenerParaConfirmarCompraAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
+            .ReturnsAsync(new List<CartonParaConfirmarCompra>
+            {
+                new(cartonId, Guid.NewGuid(), organizadorId, "Club X", "Bingo X"),
+            });
+        carritoRepository
+            .Setup(r => r.LiberarCarritoConfirmadoAsync(sesionId, It.IsAny<IReadOnlyCollection<Guid>>()))
+            .Returns(Task.CompletedTask);
+
+        compraRepository
+            .InSequence(secuencia)
+            .Setup(r => r.CrearVariasAsync(It.IsAny<IReadOnlyList<Domain.Compras.Compra>>()))
+            .Returns(Task.CompletedTask);
+        envioMailService
+            .InSequence(secuencia)
+            .Setup(s => s.EncolarAsync(It.IsAny<Guid>(), compradorId))
+            .Returns(Task.CompletedTask);
+
+        var service = CrearService(carritoRepository, bingoRepository, compraRepository, envioMailService: envioMailService);
+
+        await service.ConfirmarCompraAsync(sesionId, compradorId, MedioPago.Efectivo);
+
+        // MockSequence (Moq) rechaza la llamada si no respeta el orden configurado — si
+        // EncolarAsync se invocara ANTES de CrearVariasAsync, el setup no matchearía y Moq
+        // lanzaría MockException al invocar el método (envioMailService es Strict), por lo que
+        // llegar hasta acá sin excepción ya prueba el orden. Valida AC-06.
+        compraRepository.Verify(r => r.CrearVariasAsync(It.IsAny<IReadOnlyList<Domain.Compras.Compra>>()), Times.Once());
+        envioMailService.Verify(s => s.EncolarAsync(It.IsAny<Guid>(), compradorId), Times.Once());
+    }
+
+    [Fact]
+    public async Task ConfirmarCompraAsync_ConEncolarAsyncLanzandoExcepcion_DevuelveRespuestaIgual()
+    {
+        var sesionId = Guid.NewGuid().ToString();
+        var compradorId = Guid.NewGuid();
+        var organizadorId = Guid.NewGuid();
+        var cartonId = Guid.NewGuid();
+
+        var items = new List<ItemCarrito> { new(cartonId, 100m) };
+
+        var carritoRepository = new Mock<ICarritoRepository>();
+        var bingoRepository = new Mock<IBingoRepository>();
+        var compraRepository = new Mock<ICompraRepository>();
+        var envioMailService = new Mock<IEnvioMailService>();
+
+        carritoRepository.Setup(r => r.ObtenerItemsAsync(sesionId)).ReturnsAsync(items);
+        carritoRepository
+            .Setup(r => r.RevalidarReservasAsync(sesionId))
+            .ReturnsAsync(new RevalidacionCarrito(true, items, Array.Empty<Guid>()));
+        bingoRepository
+            .Setup(r => r.ObtenerParaConfirmarCompraAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
+            .ReturnsAsync(new List<CartonParaConfirmarCompra>
+            {
+                new(cartonId, Guid.NewGuid(), organizadorId, "Club X", "Bingo X"),
+            });
+        carritoRepository
+            .Setup(r => r.LiberarCarritoConfirmadoAsync(sesionId, It.IsAny<IReadOnlyCollection<Guid>>()))
+            .Returns(Task.CompletedTask);
+        envioMailService
+            .Setup(s => s.EncolarAsync(It.IsAny<Guid>(), compradorId))
+            .ThrowsAsync(new InvalidOperationException("outbox no disponible"));
+
+        var service = CrearService(carritoRepository, bingoRepository, compraRepository, envioMailService: envioMailService);
+
+        var response = await service.ConfirmarCompraAsync(sesionId, compradorId, MedioPago.Efectivo);
+
+        // FR-07/AC-06: el fallo de EncolarAsync nunca se propaga — la respuesta 200 se devuelve
+        // igual y el resto del flujo (liberar carrito) sigue su curso normal.
+        Assert.Single(response.Compras);
+        carritoRepository.Verify(
+            r => r.LiberarCarritoConfirmadoAsync(sesionId, It.IsAny<IReadOnlyCollection<Guid>>()),
+            Times.Once());
     }
 }
