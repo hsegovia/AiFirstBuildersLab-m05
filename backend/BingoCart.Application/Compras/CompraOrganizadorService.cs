@@ -29,7 +29,7 @@ public sealed class CompraOrganizadorService : ICompraOrganizadorService
         _logger = logger;
     }
 
-    public async Task ConfirmarPagoAsync(Guid compraId, Guid organizadorId)
+    public async Task<CompraResumenResponse> ConfirmarPagoAsync(Guid compraId, Guid organizadorId)
     {
         var compra = await ObtenerCompraPropiaAsync(compraId, organizadorId);
 
@@ -37,9 +37,11 @@ public sealed class CompraOrganizadorService : ICompraOrganizadorService
         compra.ConfirmarPago();
 
         await _compraRepository.GuardarCambiosAsync();
+
+        return await ArmarResumenAsync(compra);
     }
 
-    public async Task CancelarAsync(Guid compraId, Guid organizadorId)
+    public async Task<CompraResumenResponse> CancelarAsync(Guid compraId, Guid organizadorId)
     {
         var compra = await ObtenerCompraPropiaAsync(compraId, organizadorId);
 
@@ -65,6 +67,8 @@ public sealed class CompraOrganizadorService : ICompraOrganizadorService
                 "No se pudo encolar el mail de cancelación para la compra {CompraId}.",
                 compra.Id);
         }
+
+        return await ArmarResumenAsync(compra);
     }
 
     public async Task<CompraListadoResponse> ListarPropiasAsync(Guid organizadorId, int page, int pageSize)
@@ -102,5 +106,14 @@ public sealed class CompraOrganizadorService : ICompraOrganizadorService
         }
 
         return compra;
+    }
+
+    // El monto de una compra no cambia al confirmar/cancelar (cancelar no borra CompraCartones),
+    // así que alcanza con una lectura directa por Id — sin depender de que la compra recién mutada
+    // caiga dentro de la primera página de ListarPorOrganizadorAsync.
+    private async Task<CompraResumenResponse> ArmarResumenAsync(Compra compra)
+    {
+        var montoTotal = await _compraRepository.ObtenerMontoTotalAsync(compra.Id);
+        return new CompraResumenResponse(compra.Id, compra.Estado.ToString(), montoTotal, compra.FechaCreacionUtc);
     }
 }

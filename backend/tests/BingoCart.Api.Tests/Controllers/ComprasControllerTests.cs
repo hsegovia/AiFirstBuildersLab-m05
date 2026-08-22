@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using BingoCart.Domain.Bingos;
+using BingoCart.Domain.Compras;
 using BingoCart.Infrastructure.Auth;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Identity;
@@ -49,6 +50,12 @@ public sealed class ComprasControllerTests : IAsyncLifetime
     private readonly List<Guid> _organizadorIdsCreados = new();
     private readonly List<string> _mailsCreados = new();
     private readonly List<string> _clavesRedisABorrar = new();
+    // Spec FEAT-009c, Block 3: compras sembradas directo contra la base para los tests de
+    // ConfirmarPago/Cancelar/ListarMias — algunas (compra ajena, listado) no están atadas a un
+    // Bingo/Carton real, así que la limpieza basada en `_organizadorIdsCreados` (JOIN a
+    // CompraCartones->Cartones->Bingos) no las alcanza. Se borran por Id, con cascade delete de EF
+    // Core hacia sus CompraCartones (Rule #0 de testing.instructions.md).
+    private readonly List<Guid> _compraIdsCreadas = new();
     private ConnectionMultiplexer _redisConnectionMultiplexer = null!;
 
     public ComprasControllerTests()
@@ -64,6 +71,20 @@ public sealed class ComprasControllerTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
+        if (_compraIdsCreadas.Count > 0)
+        {
+            var optionsCompras = new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlServer(ConnectionString)
+                .Options;
+            await using var contextCompras = new AppDbContext(optionsCompras);
+
+            var comprasDirectas = await contextCompras.Compras
+                .Where(c => _compraIdsCreadas.Contains(c.Id))
+                .ToListAsync();
+            contextCompras.Compras.RemoveRange(comprasDirectas);
+            await contextCompras.SaveChangesAsync();
+        }
+
         if (_organizadorIdsCreados.Count > 0 || _mailsCreados.Count > 0)
         {
             var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -248,6 +269,102 @@ public sealed class ComprasControllerTests : IAsyncLifetime
         login.EnsureSuccessStatusCode();
 
         return client;
+    }
+
+    /// <summary>
+    /// Mismo flujo que <see cref="NuevoOrganizadorAutenticadoAsync"/>, pero además devuelve el
+    /// <c>Id</c> del organizador registrado (spec FEAT-009c, Block 3) — necesario para sembrar
+    /// compras/bingos propios y poder ejercitar el ownership check de
+    /// <c>ConfirmarPagoAsync</c>/<c>CancelarAsync</c> (FR-08/AC-08) contra el MISMO organizador
+    /// autenticado.
+    /// </summary>
+    private async Task<(HttpClient Client, Guid OrganizadorId)> NuevoOrganizadorAutenticadoConIdAsync()
+    {
+        var mail = $"test-compras-org-accion-{Guid.NewGuid()}@example.com";
+        _mailsCreados.Add(mail);
+
+        var client = NuevoClienteHttps();
+        var registro = await client.PostAsJsonAsync("/api/organizadores/registro", new
+        {
+            nombreOrganizacion = "Club Accion Organizador",
+            cuit = NuevoCuitValido(),
+            mail,
+            telefono = TelefonoValido,
+            password = PasswordValida,
+        });
+        registro.EnsureSuccessStatusCode();
+        var registroBody = await registro.Content.ReadFromJsonAsync<RegistroOrganizadorDto>(DeserializeOptions);
+
+        var login = await client.PostAsJsonAsync("/api/organizadores/login", new { mail, password = PasswordValida });
+        login.EnsureSuccessStatusCode();
+
+        return (client, registroBody!.Id);
+    }
+
+    /// <summary>
+    /// Siembra un Bingo activo con un único Carton real para <paramref name="organizadorId"/> (spec
+    /// FEAT-009c, Block 3) — necesario para el test end-to-end de <c>Cancelar</c>, que verifica que
+    /// el cartón reaparece en <c>GET /api/cartones/organizador/{id}</c>. Registra
+    /// <paramref name="organizadorId"/> en <see cref="_organizadorIdsCreados"/>: reutiliza la
+    /// limpieza ya existente basada en ese Bingo (JOIN Cartones/CompraCartones).
+    /// </summary>
+    private async Task<(Guid BingoId, Guid CartonId)> SembrarBingoYCartonParaOrganizadorAsync(Guid organizadorId)
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var bingo = Bingo.Crear("Bingo cancelacion e2e", ahoraUtc.AddDays(10), 1, 100m, organizadorId, ahoraUtc);
+        var carton = Carton.Crear(bingo.Id, new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(ConnectionString).Options;
+        await using var context = new AppDbContext(options);
+        context.Bingos.Add(bingo);
+        context.Cartones.Add(carton);
+        await context.SaveChangesAsync();
+
+        _organizadorIdsCreados.Add(organizadorId);
+
+        return (bingo.Id, carton.Id);
+    }
+
+    /// <summary>
+    /// Siembra una <see cref="Compra"/> directo contra la base (spec FEAT-009c, Block 3), en el
+    /// estado <paramref name="estadoDeseado"/> (transicionada vía Domain, nunca seteada a mano).
+    /// <paramref name="cartonId"/> no necesita ser un Carton real (sin FK física, ver
+    /// <c>AppDbContext</c>) salvo que el test también valide descubrimiento. Registra el Id en
+    /// <see cref="_compraIdsCreadas"/> para limpieza (Rule #0).
+    /// </summary>
+    private async Task<Compra> SembrarCompraAsync(
+        Guid organizadorId,
+        Guid compradorId,
+        Guid cartonId,
+        decimal monto,
+        EstadoCompra estadoDeseado = EstadoCompra.PendienteConfirmacionPago)
+    {
+        var compra = Compra.Crear(
+            organizadorId,
+            compradorId,
+            Guid.NewGuid(),
+            new[] { new ItemCompra(cartonId, monto) },
+            MedioPago.Efectivo,
+            DateTime.UtcNow);
+
+        if (estadoDeseado == EstadoCompra.Confirmado)
+        {
+            compra.ConfirmarPago();
+        }
+        else if (estadoDeseado == EstadoCompra.Cancelado)
+        {
+            compra.Cancelar();
+        }
+
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(ConnectionString).Options;
+        await using var context = new AppDbContext(options);
+        context.Compras.Add(compra);
+        context.CompraCartones.Add(new CompraCarton { CompraId = compra.Id, CartonId = cartonId, PrecioUnitario = monto });
+        await context.SaveChangesAsync();
+
+        _compraIdsCreadas.Add(compra.Id);
+
+        return compra;
     }
 
     private void RegistrarLimpiezaRedisDeCarrito(HttpResponseMessage responseConSetCookie, params Guid[] cartonIdsAgregados)
@@ -455,6 +572,118 @@ public sealed class ComprasControllerTests : IAsyncLifetime
         Assert.Equal("CarritoVacio", error!.Error);
     }
 
+    // Spec FEAT-009c, Block 3: ConfirmarPago/Cancelar/ListarMias — los 3 endpoints nuevos del
+    // organizador. `organizadorId` viene EXCLUSIVAMENTE del claim JWT del cliente autenticado
+    // (NFR-03), nunca de un parámetro que estos tests puedan falsear.
+
+    [Fact]
+    public async Task ConfirmarPago_ConCompraPropiaPendiente_Devuelve200YEstadoConfirmado()
+    {
+        var (organizador, organizadorId) = await NuevoOrganizadorAutenticadoConIdAsync();
+        var compra = await SembrarCompraAsync(organizadorId, Guid.NewGuid(), Guid.NewGuid(), 100m);
+
+        var confirmar = await organizador.PatchAsync($"/api/compras/{compra.Id}/confirmar-pago", content: null);
+
+        Assert.Equal(HttpStatusCode.OK, confirmar.StatusCode);
+        var body = await confirmar.Content.ReadFromJsonAsync<CompraResumenDto>(DeserializeOptions);
+        Assert.NotNull(body);
+        Assert.Equal(compra.Id, body!.CompraId);
+        Assert.Equal("Confirmado", body.Estado);
+    }
+
+    [Fact]
+    public async Task ConfirmarPago_ConCompraAjena_Devuelve404()
+    {
+        var (organizador, _) = await NuevoOrganizadorAutenticadoConIdAsync();
+        var compraAjena = await SembrarCompraAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 100m);
+
+        var confirmar = await organizador.PatchAsync($"/api/compras/{compraAjena.Id}/confirmar-pago", content: null);
+
+        Assert.Equal(HttpStatusCode.NotFound, confirmar.StatusCode);
+        var error = await confirmar.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("CompraNoEncontrada", error!.Error);
+    }
+
+    [Fact]
+    public async Task ConfirmarPago_ConCompraYaConfirmada_Devuelve409()
+    {
+        var (organizador, organizadorId) = await NuevoOrganizadorAutenticadoConIdAsync();
+        var compra = await SembrarCompraAsync(organizadorId, Guid.NewGuid(), Guid.NewGuid(), 100m, EstadoCompra.Confirmado);
+
+        var confirmar = await organizador.PatchAsync($"/api/compras/{compra.Id}/confirmar-pago", content: null);
+
+        Assert.Equal(HttpStatusCode.Conflict, confirmar.StatusCode);
+        var error = await confirmar.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("EstadoInvalido", error!.Error);
+    }
+
+    // End-to-end contra la base real (spec, Required tests): valida AC-03/AC-05 — cancelar libera
+    // el cartón, que vuelve a aparecer en GET /api/cartones/organizador/{id} (descubrimiento
+    // acotado, determinístico con un único cartón — a diferencia del endpoint global, que muestrea
+    // al azar entre TODOS los cartones de la base compartida de test).
+    [Fact]
+    public async Task Cancelar_ConCompraPropiaPendiente_Devuelve200YLiberaCartones()
+    {
+        var (organizador, organizadorId) = await NuevoOrganizadorAutenticadoConIdAsync();
+        var (_, cartonId) = await SembrarBingoYCartonParaOrganizadorAsync(organizadorId);
+        var compra = await SembrarCompraAsync(organizadorId, Guid.NewGuid(), cartonId, 100m);
+
+        var antes = await organizador.GetAsync($"/api/cartones/organizador/{organizadorId}");
+        var cartonesAntes = await antes.Content.ReadFromJsonAsync<List<CartonDescubiertoDto>>(DeserializeOptions);
+        Assert.DoesNotContain(cartonesAntes!, c => c.Id == cartonId);
+
+        var cancelar = await organizador.PatchAsync($"/api/compras/{compra.Id}/cancelar", content: null);
+
+        Assert.Equal(HttpStatusCode.OK, cancelar.StatusCode);
+        var body = await cancelar.Content.ReadFromJsonAsync<CompraResumenDto>(DeserializeOptions);
+        Assert.NotNull(body);
+        Assert.Equal("Cancelado", body!.Estado);
+
+        var despues = await organizador.GetAsync($"/api/cartones/organizador/{organizadorId}");
+        var cartonesDespues = await despues.Content.ReadFromJsonAsync<List<CartonDescubiertoDto>>(DeserializeOptions);
+        Assert.Contains(cartonesDespues!, c => c.Id == cartonId);
+    }
+
+    [Fact]
+    public async Task Cancelar_SinRolOrganizador_Devuelve403()
+    {
+        using var comprador = await NuevoCompradorAutenticadoAsync();
+
+        var cancelar = await comprador.PatchAsync($"/api/compras/{Guid.NewGuid()}/cancelar", content: null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, cancelar.StatusCode);
+    }
+
+    [Fact]
+    public async Task ListarMias_ConDosPaginas_RespetaPageSize()
+    {
+        var (organizador, organizadorId) = await NuevoOrganizadorAutenticadoConIdAsync();
+        var compraUno = await SembrarCompraAsync(organizadorId, Guid.NewGuid(), Guid.NewGuid(), 100m);
+        var compraDos = await SembrarCompraAsync(organizadorId, Guid.NewGuid(), Guid.NewGuid(), 150m);
+
+        var primeraPagina = await organizador.GetAsync("/api/compras/mias?page=1&pageSize=1");
+        var segundaPagina = await organizador.GetAsync("/api/compras/mias?page=2&pageSize=1");
+
+        Assert.Equal(HttpStatusCode.OK, primeraPagina.StatusCode);
+        var respuestaUno = await primeraPagina.Content.ReadFromJsonAsync<CompraListadoDto>(DeserializeOptions);
+        Assert.NotNull(respuestaUno);
+        Assert.Single(respuestaUno!.Items);
+        Assert.Equal(2, respuestaUno.Total);
+        Assert.Equal(2, respuestaUno.TotalPaginas);
+        Assert.Equal(1, respuestaUno.PageSize);
+
+        Assert.Equal(HttpStatusCode.OK, segundaPagina.StatusCode);
+        var respuestaDos = await segundaPagina.Content.ReadFromJsonAsync<CompraListadoDto>(DeserializeOptions);
+        Assert.NotNull(respuestaDos);
+        Assert.Single(respuestaDos!.Items);
+
+        var idsDevueltos = new[] { respuestaUno.Items[0].CompraId, respuestaDos!.Items[0].CompraId };
+        Assert.Contains(compraUno.Id, idsDevueltos);
+        Assert.Contains(compraDos.Id, idsDevueltos);
+    }
+
     private sealed record ErrorResponseDto(string Error, string Message);
 
     private sealed record ItemCarritoResponseDto(Guid CartonId, string NombreOrganizacion, string NombreEvento, decimal PrecioUnitario);
@@ -464,4 +693,13 @@ public sealed class ComprasControllerTests : IAsyncLifetime
     private sealed record CompraCreadaDto(Guid CompraId, Guid OrganizadorId, string NombreOrganizacion, int CantidadCartones, decimal MontoTotal);
 
     private sealed record ConfirmarCompraResponseDto(List<CompraCreadaDto> Compras);
+
+    private sealed record RegistroOrganizadorDto(Guid Id, string NombreOrganizacion, string Mail);
+
+    private sealed record CompraResumenDto(Guid CompraId, string Estado, decimal MontoTotal, DateTime FechaCreacionUtc);
+
+    private sealed record CompraListadoDto(List<CompraResumenDto> Items, int Total, int TotalPaginas, int Page, int PageSize);
+
+    private sealed record CartonDescubiertoDto(
+        Guid Id, string NombreOrganizacion, string NombreEvento, DateTime FechaSorteoUtc, decimal CostoPorCarton, List<int> Numeros);
 }

@@ -11,7 +11,8 @@ public interface ICompraOrganizadorService
 {
     /// <summary>
     /// Confirma el pago de la compra <paramref name="compraId"/>, siempre que pertenezca a
-    /// <paramref name="organizadorId"/> (FR-01/AC-01).
+    /// <paramref name="organizadorId"/> (FR-01/AC-01). Devuelve el resumen ya actualizado (API
+    /// contract de Block 3: 200 con <see cref="CompraResumenResponse"/>).
     /// </summary>
     /// <exception cref="Domain.Compras.Exceptions.CompraNoEncontradaException">
     /// La compra no existe o es de otro organizador (FR-08/AC-08).
@@ -19,12 +20,14 @@ public interface ICompraOrganizadorService
     /// <exception cref="Domain.Compras.Exceptions.CompraEstadoInvalidoException">
     /// La compra no está pendiente de confirmación de pago (FR-02/AC-02).
     /// </exception>
-    Task ConfirmarPagoAsync(Guid compraId, Guid organizadorId);
+    Task<CompraResumenResponse> ConfirmarPagoAsync(Guid compraId, Guid organizadorId);
 
     /// <summary>
     /// Cancela la compra <paramref name="compraId"/>, siempre que pertenezca a
     /// <paramref name="organizadorId"/> (FR-03/AC-03, FR-04/AC-04). Encola el mail de cancelación
     /// best-effort (FR-06): una falla al encolar nunca revierte la cancelación ya persistida.
+    /// Devuelve el resumen ya actualizado (API contract de Block 3: 200 con
+    /// <see cref="CompraResumenResponse"/>).
     /// </summary>
     /// <exception cref="Domain.Compras.Exceptions.CompraNoEncontradaException">
     /// La compra no existe o es de otro organizador (FR-08/AC-08).
@@ -32,7 +35,7 @@ public interface ICompraOrganizadorService
     /// <exception cref="Domain.Compras.Exceptions.CompraEstadoInvalidoException">
     /// La compra no está pendiente de confirmación de pago (FR-04/AC-04).
     /// </exception>
-    Task CancelarAsync(Guid compraId, Guid organizadorId);
+    Task<CompraResumenResponse> CancelarAsync(Guid compraId, Guid organizadorId);
 
     /// <summary>
     /// Devuelve la página <paramref name="page"/> de compras propias de <paramref name="organizadorId"/>

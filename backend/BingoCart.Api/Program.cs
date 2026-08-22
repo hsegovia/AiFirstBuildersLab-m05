@@ -93,6 +93,10 @@ builder.Services.AddScoped<ICompradorService, CompradorService>();
 builder.Services.AddScoped<ICompraRepository, CompraRepository>();
 builder.Services.AddScoped<ICompraService, CompraService>();
 
+// FEAT-009c, Block 3: ICompraOrganizadorService Scoped, mismo lifetime que ICompraService — depende
+// de ICompraRepository/IEnvioMailService, ambos Scoped.
+builder.Services.AddScoped<ICompraOrganizadorService, CompraOrganizadorService>();
+
 // FEAT-009b, Block 3: outbox de mail de confirmación de compra. IEnvioMailRepository/
 // IEnvioMailService Scoped, mismo lifetime que el resto (dependen de AppDbContext). IEmailSender/
 // ICartonPdfRenderer también Scoped por consistencia con el resto de los adaptadores de este
@@ -310,6 +314,19 @@ builder.Services.AddRateLimiter(options =>
         factory: _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(5)
+        }));
+
+    // Rate limiting sobre PATCH /api/compras/{id}/confirmar-pago y /cancelar (spec FEAT-009c,
+    // Block 3, NFR-02): particionado por el claim NameIdentifier del JWT (mismo mecanismo que
+    // "compras"), pero política PROPIA — NUNCA reutilizar "compras": ese actor es el comprador
+    // (10 req/5min), este es el organizador (30 req/5min, límite más generoso porque reconciliar
+    // pagos manuales es una tarea operativa recurrente, no un checkout puntual).
+    options.AddPolicy("compras-organizador", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
             Window = TimeSpan.FromMinutes(5)
         }));
 });

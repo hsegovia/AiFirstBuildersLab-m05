@@ -180,4 +180,38 @@ public sealed class EnvioMailRepositoryTests : IAsyncLifetime
         Assert.Equal(1, persistidoTrasActualizar.Intentos);
         Assert.NotNull(persistidoTrasActualizar.ProximoIntentoUtc);
     }
+
+    // Spec FEAT-009c, Block 3: ObtenerDatosParaCancelacionAsync, implementación real que reemplaza
+    // el CS0535 de partida de este bloque.
+
+    [Fact]
+    public async Task ObtenerDatosParaCancelacionAsync_ArmaCorrectamenteElDatoDeCompradorYOrganizacion()
+    {
+        var comprador = NuevoUsuario(Guid.NewGuid(), nombre: "Carla", apellido: "Diaz");
+        var organizador = NuevoUsuario(Guid.NewGuid(), nombreOrganizacion: "Club Cancelacion");
+        var compra = Compra.Crear(
+            organizador.Id, comprador.Id, Guid.NewGuid(),
+            new[] { new ItemCompra(Guid.NewGuid(), 100m) }, MedioPago.Efectivo, DateTime.UtcNow);
+
+        _context.Users.AddRange(comprador, organizador);
+        _context.Compras.Add(compra);
+        await _context.SaveChangesAsync();
+
+        var datos = await _repository.ObtenerDatosParaCancelacionAsync(compra.Id);
+
+        Assert.NotNull(datos);
+        Assert.Equal(comprador.Email, datos!.MailComprador);
+        Assert.Equal("Carla", datos.NombreComprador);
+        Assert.Equal("Diaz", datos.ApellidoComprador);
+        Assert.Equal(compra.Id, datos.CompraId);
+        Assert.Equal("Club Cancelacion", datos.NombreOrganizacion);
+    }
+
+    [Fact]
+    public async Task ObtenerDatosParaCancelacionAsync_ConCompraInexistente_DevuelveNull()
+    {
+        var datos = await _repository.ObtenerDatosParaCancelacionAsync(Guid.NewGuid());
+
+        Assert.Null(datos);
+    }
 }

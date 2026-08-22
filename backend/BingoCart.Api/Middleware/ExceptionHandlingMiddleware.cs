@@ -147,6 +147,16 @@ public sealed class ExceptionHandlingMiddleware
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.BadRequest, "CantidadDescartadosExcedeLimite");
         }
+        // Excepciones de Compra (spec FEAT-009c, Block 3): mismo idioma/shape que sus equivalentes
+        // de Bingo (BingoConComprasException/BingoNoEncontradoException, arriba).
+        catch (CompraEstadoInvalidoException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "EstadoInvalido");
+        }
+        catch (CompraNoEncontradaException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.NotFound, "CompraNoEncontrada");
+        }
         catch (Exception ex)
         {
             // No controlada: nunca se expone el mensaje real (puede contener detalles internos) ni

@@ -46,12 +46,15 @@ public class CompraOrganizadorServiceTests
         var compraRepository = new Mock<ICompraRepository>();
         compraRepository.Setup(r => r.ObtenerPorIdAsync(compra.Id)).ReturnsAsync(compra);
         compraRepository.Setup(r => r.GuardarCambiosAsync()).Returns(Task.CompletedTask);
+        compraRepository.Setup(r => r.ObtenerMontoTotalAsync(compra.Id)).ReturnsAsync(100m);
 
         var service = CrearService(compraRepository);
 
-        await service.ConfirmarPagoAsync(compra.Id, organizadorId);
+        var resumen = await service.ConfirmarPagoAsync(compra.Id, organizadorId);
 
         Assert.Equal(EstadoCompra.Confirmado, compra.Estado);
+        Assert.Equal(EstadoCompra.Confirmado.ToString(), resumen.Estado);
+        Assert.Equal(100m, resumen.MontoTotal);
         compraRepository.Verify(r => r.GuardarCambiosAsync(), Times.Once());
     }
 
@@ -126,16 +129,18 @@ public class CompraOrganizadorServiceTests
             .InSequence(secuencia)
             .Setup(s => s.EncolarCancelacionAsync(compra.Id, compra.CompradorId))
             .Returns(Task.CompletedTask);
+        compraRepository.Setup(r => r.ObtenerMontoTotalAsync(compra.Id)).ReturnsAsync(100m);
 
         var service = CrearService(compraRepository, envioMailService);
 
-        await service.CancelarAsync(compra.Id, organizadorId);
+        var resumen = await service.CancelarAsync(compra.Id, organizadorId);
 
         // MockSequence (Moq) rechaza la llamada si no respeta el orden configurado — si
         // EncolarCancelacionAsync se invocara ANTES de GuardarCambiosAsync, el setup no matchearía
         // y Moq lanzaría MockException al invocar el método (ambos mocks son Strict), por lo que
         // llegar hasta acá sin excepción ya prueba el orden. Valida FR-03/FR-06.
         Assert.Equal(EstadoCompra.Cancelado, compra.Estado);
+        Assert.Equal(EstadoCompra.Cancelado.ToString(), resumen.Estado);
         compraRepository.Verify(r => r.GuardarCambiosAsync(), Times.Once());
         envioMailService.Verify(s => s.EncolarCancelacionAsync(compra.Id, compra.CompradorId), Times.Once());
     }
@@ -151,6 +156,7 @@ public class CompraOrganizadorServiceTests
 
         compraRepository.Setup(r => r.ObtenerPorIdAsync(compra.Id)).ReturnsAsync(compra);
         compraRepository.Setup(r => r.GuardarCambiosAsync()).Returns(Task.CompletedTask);
+        compraRepository.Setup(r => r.ObtenerMontoTotalAsync(compra.Id)).ReturnsAsync(100m);
         envioMailService
             .Setup(s => s.EncolarCancelacionAsync(compra.Id, compra.CompradorId))
             .ThrowsAsync(new InvalidOperationException("outbox no disponible"));
@@ -159,7 +165,8 @@ public class CompraOrganizadorServiceTests
 
         // FR-06 (best-effort): la falla al encolar el mail de cancelación nunca se propaga — la
         // cancelación ya persistida en SQL no se revierte ni la excepción llega al llamador.
-        await service.CancelarAsync(compra.Id, organizadorId);
+        var resumen = await service.CancelarAsync(compra.Id, organizadorId);
+        Assert.Equal(EstadoCompra.Cancelado.ToString(), resumen.Estado);
 
         Assert.Equal(EstadoCompra.Cancelado, compra.Estado);
         compraRepository.Verify(r => r.GuardarCambiosAsync(), Times.Once());

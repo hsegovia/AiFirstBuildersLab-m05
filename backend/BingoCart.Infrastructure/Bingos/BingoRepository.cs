@@ -2,6 +2,7 @@ using BingoCart.Application.Bingos;
 using BingoCart.Application.Carritos.Dtos;
 using BingoCart.Application.Compras.Dtos;
 using BingoCart.Domain.Bingos;
+using BingoCart.Domain.Compras;
 using BingoCart.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -57,10 +58,13 @@ public sealed class BingoRepository : IBingoRepository
 
     // Implementación real (spec FEAT-009a, Block 1) — reemplaza el `false` hardcodeado desde
     // FEAT-007. EXISTS contra CompraCartones join Cartones por BingoId: un bingo "tiene compras" si
-    // al menos uno de sus cartones aparece en CompraCartones.
+    // al menos uno de sus cartones aparece en CompraCartones. Extendido en spec FEAT-009c, Block 3
+    // (FR-05): excluye las filas cuya Compra está Cancelada (JOIN a Compras, Estado != Cancelado) —
+    // un bingo cuya única compra fue cancelada vuelve a estar "sin compras" (editable/eliminable).
     public Task<bool> TieneComprasRegistradasAsync(Guid bingoId) =>
         _context.CompraCartones.AnyAsync(cc =>
-            _context.Cartones.Any(c => c.Id == cc.CartonId && c.BingoId == bingoId));
+            _context.Cartones.Any(c => c.Id == cc.CartonId && c.BingoId == bingoId)
+            && _context.Compras.Any(compra => compra.Id == cc.CompraId && compra.Estado != EstadoCompra.Cancelado));
 
     public Task GuardarCambiosAsync() => _context.SaveChangesAsync();
 
@@ -75,8 +79,11 @@ public sealed class BingoRepository : IBingoRepository
             .Where(x => x.c.Id == cartonId
                 && x.b.FechaSorteoUtc > ahoraUtc
                 // FR-07 (spec FEAT-009a, Block 1): un cartón ya vendido nunca puede volver a
-                // agregarse a un carrito, aunque su bingo siga activo.
-                && !_context.CompraCartones.Any(cc => cc.CartonId == x.c.Id))
+                // agregarse a un carrito, aunque su bingo siga activo. Extendido en spec FEAT-009c,
+                // Block 3 (FR-05): una fila de CompraCartones cuya Compra está Cancelada no cuenta
+                // como "vendido" — el cartón vuelve a estar disponible.
+                && !_context.CompraCartones.Any(cc => cc.CartonId == x.c.Id
+                    && _context.Compras.Any(compra => compra.Id == cc.CompraId && compra.Estado != EstadoCompra.Cancelado)))
             // `!` seguro: `u` siempre proviene de `Bingo.OrganizadorId`, un organizador, que
             // siempre completa `NombreOrganizacion` (mismo criterio que ObtenerParaConfirmarCompraAsync).
             .Select(x => new CartonParaCarrito(x.c.Id, x.b.Id, x.b.CostoPorCarton, x.u.NombreOrganizacion!, x.b.NombreEvento))

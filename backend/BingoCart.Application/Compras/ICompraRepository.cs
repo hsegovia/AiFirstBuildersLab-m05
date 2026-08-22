@@ -43,4 +43,16 @@ public interface ICompraRepository
     /// puerto no revalida.
     /// </summary>
     Task<ComprasPaginadas> ListarPorOrganizadorAsync(Guid organizadorId, int page, int pageSize);
+
+    /// <summary>
+    /// Devuelve el monto total de <paramref name="compraId"/> (suma de
+    /// <c>CompraCartones.PrecioUnitario</c> de esa compra) — spec FEAT-009c, Block 3 (corrección
+    /// post-implementación: <c>ConfirmarPagoAsync</c>/<c>CancelarAsync</c> necesitan devolver un
+    /// <c>CompraResumenResponse</c> completo sin depender de que la compra recién mutada caiga dentro
+    /// de la primera página de <see cref="ListarPorOrganizadorAsync"/>). El monto de una compra no
+    /// cambia al confirmar/cancelar (cancelar no borra <c>CompraCartones</c>), así que una sola lectura
+    /// alcanza. Devuelve 0 si la compra no tiene ítems (no debería ocurrir en la práctica, pero evita
+    /// una excepción sobre una colección vacía).
+    /// </summary>
+    Task<decimal> ObtenerMontoTotalAsync(Guid compraId);
 }
