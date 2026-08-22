@@ -202,4 +202,27 @@ public sealed class CompraRepositoryTests : IAsyncLifetime
 
         Assert.Equal(0m, montoTotal);
     }
+
+    // Corrective loop de VERIFY (F-VER-03): ListarPorOrganizadorAsync tenía branch coverage <80% —
+    // faltaba ejercitar la rama ": 0m" del TryGetValue sobre montosPorCompra cuando una compra de la
+    // página no tiene ninguna fila en CompraCartones.
+
+    [Fact]
+    public async Task ListarPorOrganizadorAsync_ConUnaCompraSinCartones_DevuelveMontoCero()
+    {
+        // `Compra.Items` está ignorado por AppDbContext (el monto vive en CompraCartones, no en la
+        // entidad) — agregar la Compra directamente (sin pasar por CrearVariasAsync, que sí escribe
+        // CompraCartones) deja la compra persistida sin ninguna fila asociada, igual que el caso real
+        // "página con una compra ya cancelada/legacy sin ítems".
+        var organizadorId = Guid.NewGuid();
+        var compraSinCartones = NuevaCompra(organizadorId, Guid.NewGuid(), MedioPago.Efectivo, Guid.NewGuid());
+        _context.Compras.Add(compraSinCartones);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ListarPorOrganizadorAsync(organizadorId, page: 1, pageSize: 10);
+
+        var item = Assert.Single(resultado.Items);
+        Assert.Equal(compraSinCartones.Id, item.Compra.Id);
+        Assert.Equal(0m, item.MontoTotal);
+    }
 }

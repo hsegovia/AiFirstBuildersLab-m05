@@ -62,3 +62,20 @@ Ninguna. No hay hallazgos Medium sin mitigar en este ticket.
 **Total: 0 vulnerabilidades (0 Critical, 0 High, 0 Medium sin mitigar), 3 mitigaciones de threat model confirmadas en código (R-01 IDOR, R-02 logging, R-03 HTML encoding), 1 riesgo aceptado confirmado como tal (R-04).**
 
 **Veredicto: PASSED**
+
+---
+
+## Ronda 2 — corrective loop de VERIFY (F-VER-03, branch coverage)
+
+| Field | Value |
+|-------|-------|
+| Motivo | VERIFY (daw-module-verifier) bloqueó por branch coverage <80% en `CompraRepository.ListarPorOrganizadorAsync` y `EnvioMailRepository.ObtenerDatosParaCancelacionAsync` |
+| Scope | `git diff --stat -- backend/tests`: 2 archivos, 102 inserciones, **0 archivos de producción** |
+| Archivos | `backend/tests/BingoCart.Infrastructure.Tests/Compras/CompraRepositoryTests.cs` (+1 test), `backend/tests/BingoCart.Infrastructure.Tests/Compras/EnvioMailRepositoryTests.cs` (+3 tests) |
+
+- ✅ F-SAST-01 (secrets): sin coincidencias — los 4 tests nuevos usan `Guid.NewGuid()` y el mismo patrón de email ficticio (`{id}@example.com`) ya usado en el resto de la suite (`NuevoUsuario`), sin credenciales ni tokens reales.
+- ✅ Sin PII real: todos los datos son sintéticos (`"Marta"`/`"Ruiz"`, `null` explícito para ejercitar las ramas `??`), coherente con el resto de `EnvioMailRepositoryTests.cs`.
+- N/A — el resto de las categorías (injection, XSS, IDOR, dependencias) no aplican: no se tocó ningún archivo de producción, controller, query ni `.csproj`.
+- ✅ `dotnet format BingoCart.sln --verify-no-changes`: limpio.
+
+**Total ronda 2: 0 vulnerabilidades. Veredicto: PASSED.**

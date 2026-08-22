@@ -214,4 +214,83 @@ public sealed class EnvioMailRepositoryTests : IAsyncLifetime
 
         Assert.Null(datos);
     }
+
+    // Corrective loop de VERIFY (F-VER-03): faltaba ejercitar la rama "comprador is null" — Compra
+    // existe (CompradorId no tiene FK en la base, ver AppDbContext) pero no hay fila en Users con ese
+    // Id, mismo caso defensivo ya cubierto por ObtenerDatosParaEnviarAsync.
+
+    [Fact]
+    public async Task ObtenerDatosParaCancelacionAsync_ConCompradorInexistente_DevuelveNull()
+    {
+        var organizador = NuevoUsuario(Guid.NewGuid(), nombreOrganizacion: "Club Fantasma");
+        var compra = Compra.Crear(
+            organizador.Id, Guid.NewGuid(), Guid.NewGuid(),
+            new[] { new ItemCompra(Guid.NewGuid(), 100m) }, MedioPago.Efectivo, DateTime.UtcNow);
+
+        _context.Users.Add(organizador);
+        _context.Compras.Add(compra);
+        await _context.SaveChangesAsync();
+
+        var datos = await _repository.ObtenerDatosParaCancelacionAsync(compra.Id);
+
+        Assert.Null(datos);
+    }
+
+    // Cierre del corrective loop de VERIFY (F-VER-03): las 2 ramas de arriba dejaron la rama
+    // "comprador is null" cubierta, pero las ramas "??" de organizador?.NombreOrganizacion /
+    // Email / Nombre / Apellido seguían sin ejercitar su lado null. Un solo organizador inexistente
+    // (a diferencia del test de arriba, acá SÍ hay comprador) cubre la rama "organizador null" del
+    // encadenado "organizador?.NombreOrganizacion ?? string.Empty".
+
+    [Fact]
+    public async Task ObtenerDatosParaCancelacionAsync_ConOrganizadorInexistente_UsaNombreOrganizacionVacio()
+    {
+        var comprador = NuevoUsuario(Guid.NewGuid(), nombre: "Marta", apellido: "Ruiz");
+        var compra = Compra.Crear(
+            Guid.NewGuid(), comprador.Id, Guid.NewGuid(),
+            new[] { new ItemCompra(Guid.NewGuid(), 100m) }, MedioPago.Efectivo, DateTime.UtcNow);
+
+        _context.Users.Add(comprador);
+        _context.Compras.Add(compra);
+        await _context.SaveChangesAsync();
+
+        var datos = await _repository.ObtenerDatosParaCancelacionAsync(compra.Id);
+
+        Assert.NotNull(datos);
+        Assert.Equal(string.Empty, datos!.NombreOrganizacion);
+    }
+
+    // Rama restante: comprador presente pero con Email/Nombre/Apellido null (columnas nullable en
+    // ApplicationUser — comentario de la propia clase) — el lado null de los 3 "??" de
+    // ObtenerDatosParaCancelacionAsync. Construida sin NuevoUsuario porque ese helper siempre fija
+    // Email.
+
+    [Fact]
+    public async Task ObtenerDatosParaCancelacionAsync_ConCompradorSinEmailNombreNiApellido_DevuelveCadenasVacias()
+    {
+        var compradorId = Guid.NewGuid();
+        var comprador = new ApplicationUser
+        {
+            Id = compradorId,
+            UserName = $"{compradorId}@example.com",
+            Email = null,
+            Nombre = null,
+            Apellido = null,
+            Cuit = compradorId.ToString("N")[..11],
+        };
+        var compra = Compra.Crear(
+            Guid.NewGuid(), compradorId, Guid.NewGuid(),
+            new[] { new ItemCompra(Guid.NewGuid(), 100m) }, MedioPago.Efectivo, DateTime.UtcNow);
+
+        _context.Users.Add(comprador);
+        _context.Compras.Add(compra);
+        await _context.SaveChangesAsync();
+
+        var datos = await _repository.ObtenerDatosParaCancelacionAsync(compra.Id);
+
+        Assert.NotNull(datos);
+        Assert.Equal(string.Empty, datos!.MailComprador);
+        Assert.Equal(string.Empty, datos.NombreComprador);
+        Assert.Equal(string.Empty, datos.ApellidoComprador);
+    }
 }
