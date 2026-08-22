@@ -1,4 +1,5 @@
 using BingoCart.Domain.Compras;
+using BingoCart.Domain.Compras.Exceptions;
 
 namespace BingoCart.Domain.Tests.Compras;
 
@@ -59,5 +60,76 @@ public class CompraTests
             ahoraUtc: DateTime.UtcNow);
 
         Assert.Equal(confirmacionId, compra.ConfirmacionId);
+    }
+
+    private static Compra CrearCompraPendiente()
+    {
+        return Compra.Crear(
+            organizadorId: Guid.NewGuid(),
+            compradorId: Guid.NewGuid(),
+            confirmacionId: Guid.NewGuid(),
+            items: UnItem,
+            medioPago: MedioPago.Efectivo,
+            ahoraUtc: DateTime.UtcNow);
+    }
+
+    [Fact]
+    public void ConfirmarPago_DesdePendiente_TransicionaAConfirmado()
+    {
+        var compra = CrearCompraPendiente();
+
+        compra.ConfirmarPago();
+
+        Assert.Equal(EstadoCompra.Confirmado, compra.Estado);
+    }
+
+    [Fact]
+    public void ConfirmarPago_DesdeConfirmado_LanzaCompraEstadoInvalidoException()
+    {
+        var compra = CrearCompraPendiente();
+        compra.ConfirmarPago();
+
+        var ex = Assert.Throws<CompraEstadoInvalidoException>(() => compra.ConfirmarPago());
+        Assert.Equal("La compra no está pendiente de confirmación de pago.", ex.Message);
+    }
+
+    [Fact]
+    public void ConfirmarPago_DesdeCancelado_LanzaCompraEstadoInvalidoException()
+    {
+        var compra = CrearCompraPendiente();
+        compra.Cancelar();
+
+        var ex = Assert.Throws<CompraEstadoInvalidoException>(() => compra.ConfirmarPago());
+        Assert.Equal("La compra no está pendiente de confirmación de pago.", ex.Message);
+    }
+
+    [Fact]
+    public void Cancelar_DesdePendiente_TransicionaACancelado()
+    {
+        var compra = CrearCompraPendiente();
+
+        compra.Cancelar();
+
+        Assert.Equal(EstadoCompra.Cancelado, compra.Estado);
+    }
+
+    [Fact]
+    public void Cancelar_DesdeConfirmado_LanzaCompraEstadoInvalidoException()
+    {
+        var compra = CrearCompraPendiente();
+        compra.ConfirmarPago();
+
+        var ex = Assert.Throws<CompraEstadoInvalidoException>(() => compra.Cancelar());
+        Assert.Equal("La compra no está pendiente de confirmación de pago.", ex.Message);
+    }
+
+    [Fact]
+    public void Cancelar_DesdeCancelado_LanzaCompraEstadoInvalidoException()
+    {
+        var compra = CrearCompraPendiente();
+        compra.Cancelar();
+
+        var ex = Assert.Throws<CompraEstadoInvalidoException>(() => compra.Cancelar());
+        Assert.Equal("La compra no está pendiente de confirmación de pago.", ex.Message);
     }
 }

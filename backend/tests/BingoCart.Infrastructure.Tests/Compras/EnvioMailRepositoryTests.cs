@@ -61,18 +61,18 @@ public sealed class EnvioMailRepositoryTests : IAsyncLifetime
     {
         var ahoraUtc = DateTime.UtcNow;
 
-        var pendienteSinProximoIntento = EnvioMail.Crear(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
+        var pendienteSinProximoIntento = EnvioMail.CrearConfirmacion(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
 
-        var pendienteConProximoVencido = EnvioMail.Crear(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
+        var pendienteConProximoVencido = EnvioMail.CrearConfirmacion(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
         pendienteConProximoVencido.RegistrarIntentoFallido(ahoraUtc.AddMinutes(-5));
 
-        var pendienteConProximoFuturo = EnvioMail.Crear(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
+        var pendienteConProximoFuturo = EnvioMail.CrearConfirmacion(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
         pendienteConProximoFuturo.RegistrarIntentoFallido(ahoraUtc);
 
-        var exitoso = EnvioMail.Crear(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
+        var exitoso = EnvioMail.CrearConfirmacion(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
         exitoso.RegistrarExito();
 
-        var fallido = EnvioMail.Crear(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
+        var fallido = EnvioMail.CrearConfirmacion(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
         fallido.RegistrarIntentoFallido(ahoraUtc.AddMinutes(-10));
         fallido.RegistrarIntentoFallido(ahoraUtc.AddMinutes(-9));
         fallido.RegistrarIntentoFallido(ahoraUtc.AddMinutes(-8));
@@ -163,7 +163,7 @@ public sealed class EnvioMailRepositoryTests : IAsyncLifetime
     public async Task EncolarAsync_y_ActualizarAsync_Persisten()
     {
         var ahoraUtc = DateTime.UtcNow;
-        var envio = EnvioMail.Crear(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
+        var envio = EnvioMail.CrearConfirmacion(Guid.NewGuid(), Guid.NewGuid(), ahoraUtc);
 
         await _repository.EncolarAsync(envio);
 

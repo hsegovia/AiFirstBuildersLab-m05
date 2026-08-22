@@ -1,3 +1,5 @@
+using BingoCart.Domain.Compras.Exceptions;
+
 namespace BingoCart.Domain.Compras;
 
 /// <summary>
@@ -26,7 +28,7 @@ public sealed class Compra
 
     public MedioPago MedioPago { get; private init; }
 
-    public EstadoCompra Estado { get; private init; }
+    public EstadoCompra Estado { get; private set; }
 
     public DateTime FechaCreacionUtc { get; private init; }
 
@@ -65,5 +67,39 @@ public sealed class Compra
             Estado = EstadoCompra.PendienteConfirmacionPago,
             FechaCreacionUtc = ahoraUtc,
         };
+    }
+
+    /// <summary>
+    /// Transiciona la compra a <see cref="EstadoCompra.Confirmado"/> (FR-01/AC-01). Lógica pura de
+    /// dominio, sin I/O.
+    /// </summary>
+    /// <exception cref="CompraEstadoInvalidoException">
+    /// La compra no está en <see cref="EstadoCompra.PendienteConfirmacionPago"/> (FR-02/AC-02).
+    /// </exception>
+    public void ConfirmarPago()
+    {
+        if (Estado != EstadoCompra.PendienteConfirmacionPago)
+        {
+            throw new CompraEstadoInvalidoException("La compra no está pendiente de confirmación de pago.");
+        }
+
+        Estado = EstadoCompra.Confirmado;
+    }
+
+    /// <summary>
+    /// Transiciona la compra a <see cref="EstadoCompra.Cancelado"/> (FR-03/AC-03, FR-04/AC-04).
+    /// Lógica pura de dominio, sin I/O.
+    /// </summary>
+    /// <exception cref="CompraEstadoInvalidoException">
+    /// La compra no está en <see cref="EstadoCompra.PendienteConfirmacionPago"/> (FR-04/AC-04).
+    /// </exception>
+    public void Cancelar()
+    {
+        if (Estado != EstadoCompra.PendienteConfirmacionPago)
+        {
+            throw new CompraEstadoInvalidoException("La compra no está pendiente de confirmación de pago.");
+        }
+
+        Estado = EstadoCompra.Cancelado;
     }
 }

@@ -38,7 +38,7 @@ public sealed class EnvioMailService : IEnvioMailService
     public async Task EncolarAsync(Guid confirmacionId, Guid compradorId)
     {
         var ahoraUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        var envio = EnvioMail.Crear(confirmacionId, compradorId, ahoraUtc);
+        var envio = EnvioMail.CrearConfirmacion(confirmacionId, compradorId, ahoraUtc);
         await _envioMailRepository.EncolarAsync(envio);
     }
 
@@ -54,7 +54,12 @@ public sealed class EnvioMailService : IEnvioMailService
         {
             try
             {
-                var datos = await _envioMailRepository.ObtenerDatosParaEnviarAsync(envio.ConfirmacionId);
+                // ConfirmacionId es Guid? desde FEAT-009c (Block 1, soporte de EnvioMail.TipoEnvio),
+                // pero ProcesarPendientesAsync todavía no ramifica por tipo — eso es Block 2. Hasta
+                // que exista esa ramificación, el único productor de EnvioMail vía este servicio es
+                // EncolarAsync (siempre TipoEnvio.Confirmacion), así que ConfirmacionId nunca es null
+                // en este punto.
+                var datos = await _envioMailRepository.ObtenerDatosParaEnviarAsync(envio.ConfirmacionId!.Value);
                 if (datos is null)
                 {
                     // Caso esperable, no una excepción (ver "Error handling" del spec): se saltea

@@ -85,7 +85,7 @@ public class EnvioMailServiceTests
     {
         var ahoraUtc = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
         var confirmacionId = Guid.NewGuid();
-        var envio = EnvioMail.Crear(confirmacionId, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
+        var envio = EnvioMail.CrearConfirmacion(confirmacionId, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
         var datos = CrearDatosDeEjemplo();
 
         var envioMailRepository = new Mock<IEnvioMailRepository>();
@@ -116,7 +116,7 @@ public class EnvioMailServiceTests
     {
         var ahoraUtc = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
         var confirmacionId = Guid.NewGuid();
-        var envio = EnvioMail.Crear(confirmacionId, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
+        var envio = EnvioMail.CrearConfirmacion(confirmacionId, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
         var datos = CrearDatosDeEjemplo();
 
         var envioMailRepository = new Mock<IEnvioMailRepository>();
@@ -145,7 +145,7 @@ public class EnvioMailServiceTests
     {
         var ahoraUtc = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
         var confirmacionId = Guid.NewGuid();
-        var envio = EnvioMail.Crear(confirmacionId, Guid.NewGuid(), ahoraUtc.AddMinutes(-10));
+        var envio = EnvioMail.CrearConfirmacion(confirmacionId, Guid.NewGuid(), ahoraUtc.AddMinutes(-10));
         envio.RegistrarIntentoFallido(ahoraUtc.AddMinutes(-8));
         envio.RegistrarIntentoFallido(ahoraUtc.AddMinutes(-4));
         Assert.Equal(2, envio.Intentos);
@@ -179,11 +179,11 @@ public class EnvioMailServiceTests
         var ahoraUtc = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
 
         var confirmacionIdFallido = Guid.NewGuid();
-        var envioFallido = EnvioMail.Crear(confirmacionIdFallido, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
+        var envioFallido = EnvioMail.CrearConfirmacion(confirmacionIdFallido, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
         var datosFallido = CrearDatosDeEjemplo("fallido@mail.com");
 
         var confirmacionIdExitoso = Guid.NewGuid();
-        var envioExitoso = EnvioMail.Crear(confirmacionIdExitoso, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
+        var envioExitoso = EnvioMail.CrearConfirmacion(confirmacionIdExitoso, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
         var datosExitoso = CrearDatosDeEjemplo("exitoso@mail.com");
 
         var envioMailRepository = new Mock<IEnvioMailRepository>();
@@ -223,7 +223,7 @@ public class EnvioMailServiceTests
     {
         var ahoraUtc = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
         var confirmacionId = Guid.NewGuid();
-        var envio = EnvioMail.Crear(confirmacionId, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
+        var envio = EnvioMail.CrearConfirmacion(confirmacionId, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
 
         var envioMailRepository = new Mock<IEnvioMailRepository>();
         var emailSender = new Mock<IEmailSender>();
