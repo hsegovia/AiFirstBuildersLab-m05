@@ -115,7 +115,7 @@ public sealed class CompraService : ICompraService
         // de Infrastructure, log de warning, nunca relanza.
         try
         {
-            await _envioMailService.EncolarAsync(confirmacionId, compradorId);
+            await _envioMailService.EncolarConfirmacionAsync(confirmacionId, compradorId);
         }
         catch (Exception ex)
         {

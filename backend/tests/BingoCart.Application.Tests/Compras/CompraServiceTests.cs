@@ -291,7 +291,7 @@ public class CompraServiceTests
     }
 
     [Fact]
-    public async Task ConfirmarCompraAsync_Exitoso_InvocaEncolarAsyncDespuesDeCrearVariasAsync()
+    public async Task ConfirmarCompraAsync_Exitoso_InvocaEncolarConfirmacionAsyncDespuesDeCrearVariasAsync()
     {
         var sesionId = Guid.NewGuid().ToString();
         var compradorId = Guid.NewGuid();
@@ -327,7 +327,7 @@ public class CompraServiceTests
             .Returns(Task.CompletedTask);
         envioMailService
             .InSequence(secuencia)
-            .Setup(s => s.EncolarAsync(It.IsAny<Guid>(), compradorId))
+            .Setup(s => s.EncolarConfirmacionAsync(It.IsAny<Guid>(), compradorId))
             .Returns(Task.CompletedTask);
 
         var service = CrearService(carritoRepository, bingoRepository, compraRepository, envioMailService: envioMailService);
@@ -335,15 +335,15 @@ public class CompraServiceTests
         await service.ConfirmarCompraAsync(sesionId, compradorId, MedioPago.Efectivo);
 
         // MockSequence (Moq) rechaza la llamada si no respeta el orden configurado — si
-        // EncolarAsync se invocara ANTES de CrearVariasAsync, el setup no matchearía y Moq
-        // lanzaría MockException al invocar el método (envioMailService es Strict), por lo que
+        // EncolarConfirmacionAsync se invocara ANTES de CrearVariasAsync, el setup no matchearía y
+        // Moq lanzaría MockException al invocar el método (envioMailService es Strict), por lo que
         // llegar hasta acá sin excepción ya prueba el orden. Valida AC-06.
         compraRepository.Verify(r => r.CrearVariasAsync(It.IsAny<IReadOnlyList<Domain.Compras.Compra>>()), Times.Once());
-        envioMailService.Verify(s => s.EncolarAsync(It.IsAny<Guid>(), compradorId), Times.Once());
+        envioMailService.Verify(s => s.EncolarConfirmacionAsync(It.IsAny<Guid>(), compradorId), Times.Once());
     }
 
     [Fact]
-    public async Task ConfirmarCompraAsync_ConEncolarAsyncLanzandoExcepcion_DevuelveRespuestaIgual()
+    public async Task ConfirmarCompraAsync_ConEncolarConfirmacionAsyncLanzandoExcepcion_DevuelveRespuestaIgual()
     {
         var sesionId = Guid.NewGuid().ToString();
         var compradorId = Guid.NewGuid();
@@ -371,15 +371,15 @@ public class CompraServiceTests
             .Setup(r => r.LiberarCarritoConfirmadoAsync(sesionId, It.IsAny<IReadOnlyCollection<Guid>>()))
             .Returns(Task.CompletedTask);
         envioMailService
-            .Setup(s => s.EncolarAsync(It.IsAny<Guid>(), compradorId))
+            .Setup(s => s.EncolarConfirmacionAsync(It.IsAny<Guid>(), compradorId))
             .ThrowsAsync(new InvalidOperationException("outbox no disponible"));
 
         var service = CrearService(carritoRepository, bingoRepository, compraRepository, envioMailService: envioMailService);
 
         var response = await service.ConfirmarCompraAsync(sesionId, compradorId, MedioPago.Efectivo);
 
-        // FR-07/AC-06: el fallo de EncolarAsync nunca se propaga — la respuesta 200 se devuelve
-        // igual y el resto del flujo (liberar carrito) sigue su curso normal.
+        // FR-07/AC-06: el fallo de EncolarConfirmacionAsync nunca se propaga — la respuesta 200 se
+        // devuelve igual y el resto del flujo (liberar carrito) sigue su curso normal.
         Assert.Single(response.Compras);
         carritoRepository.Verify(
             r => r.LiberarCarritoConfirmadoAsync(sesionId, It.IsAny<IReadOnlyCollection<Guid>>()),

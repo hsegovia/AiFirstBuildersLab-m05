@@ -53,7 +53,7 @@ public class EnvioMailServiceTests
     }
 
     [Fact]
-    public async Task EncolarAsync_CreaEnvioEnEstadoPendiente()
+    public async Task EncolarConfirmacionAsync_CreaEnvioEnEstadoPendiente()
     {
         var confirmacionId = Guid.NewGuid();
         var compradorId = Guid.NewGuid();
@@ -70,13 +70,43 @@ public class EnvioMailServiceTests
 
         var service = CrearService(envioMailRepository, emailSender, cartonPdfRenderer);
 
-        await service.EncolarAsync(confirmacionId, compradorId);
+        await service.EncolarConfirmacionAsync(confirmacionId, compradorId);
 
         Assert.NotNull(envioEncolado);
-        Assert.Equal(confirmacionId, envioEncolado!.ConfirmacionId);
+        Assert.Equal(TipoEnvioMail.Confirmacion, envioEncolado!.TipoEnvio);
+        Assert.Equal(confirmacionId, envioEncolado.ConfirmacionId);
         Assert.Equal(compradorId, envioEncolado.CompradorId);
         Assert.Equal(EstadoEnvioMail.Pendiente, envioEncolado.Estado);
         Assert.Equal(0, envioEncolado.Intentos);
+        envioMailRepository.Verify(r => r.EncolarAsync(It.IsAny<EnvioMail>()), Times.Once());
+    }
+
+    [Fact]
+    public async Task EncolarCancelacionAsync_CreaEnvioTipoCancelacionConCompraIdSeteado()
+    {
+        var compraId = Guid.NewGuid();
+        var compradorId = Guid.NewGuid();
+
+        var envioMailRepository = new Mock<IEnvioMailRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var cartonPdfRenderer = new Mock<ICartonPdfRenderer>();
+
+        EnvioMail? envioEncolado = null;
+        envioMailRepository
+            .Setup(r => r.EncolarAsync(It.IsAny<EnvioMail>()))
+            .Callback<EnvioMail>(envio => envioEncolado = envio)
+            .Returns(Task.CompletedTask);
+
+        var service = CrearService(envioMailRepository, emailSender, cartonPdfRenderer);
+
+        await service.EncolarCancelacionAsync(compraId, compradorId);
+
+        Assert.NotNull(envioEncolado);
+        Assert.Equal(TipoEnvioMail.Cancelacion, envioEncolado!.TipoEnvio);
+        Assert.Equal(compraId, envioEncolado.CompraId);
+        Assert.Null(envioEncolado.ConfirmacionId);
+        Assert.Equal(compradorId, envioEncolado.CompradorId);
+        Assert.Equal(EstadoEnvioMail.Pendiente, envioEncolado.Estado);
         envioMailRepository.Verify(r => r.EncolarAsync(It.IsAny<EnvioMail>()), Times.Once());
     }
 
@@ -234,6 +264,64 @@ public class EnvioMailServiceTests
         envioMailRepository
             .Setup(r => r.ObtenerDatosParaEnviarAsync(confirmacionId))
             .ReturnsAsync((DatosParaMailConfirmacion?)null);
+
+        var service = CrearService(envioMailRepository, emailSender, cartonPdfRenderer, timeProvider.Object);
+
+        await service.ProcesarPendientesAsync();
+
+        Assert.Equal(EstadoEnvioMail.Pendiente, envio.Estado);
+        Assert.Equal(0, envio.Intentos);
+        emailSender.Verify(s => s.EnviarAsync(It.IsAny<EnvioMailMensaje>()), Times.Never());
+        envioMailRepository.Verify(r => r.ActualizarAsync(It.IsAny<EnvioMail>()), Times.Never());
+    }
+
+    [Fact]
+    public async Task ProcesarPendientesAsync_ConEnvioTipoCancelacion_ArmaMensajeSinAdjuntosYLoEnvia()
+    {
+        var ahoraUtc = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var compraId = Guid.NewGuid();
+        var envio = EnvioMail.CrearCancelacion(compraId, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
+        var datos = new DatosParaMailCancelacion("comprador@mail.com", "Juan", "Perez", compraId, "Club Uno");
+
+        var envioMailRepository = new Mock<IEnvioMailRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var cartonPdfRenderer = new Mock<ICartonPdfRenderer>();
+        var timeProvider = CrearTimeProviderFijo(ahoraUtc);
+
+        envioMailRepository.Setup(r => r.ObtenerPendientesAsync(ahoraUtc)).ReturnsAsync(new List<EnvioMail> { envio });
+        envioMailRepository.Setup(r => r.ObtenerDatosParaCancelacionAsync(compraId)).ReturnsAsync(datos);
+        emailSender.Setup(s => s.EnviarAsync(It.IsAny<EnvioMailMensaje>())).Returns(Task.CompletedTask);
+
+        var service = CrearService(envioMailRepository, emailSender, cartonPdfRenderer, timeProvider.Object);
+
+        await service.ProcesarPendientesAsync();
+
+        Assert.Equal(EstadoEnvioMail.Exitoso, envio.Estado);
+        envioMailRepository.Verify(r => r.ActualizarAsync(envio), Times.Once());
+        emailSender.Verify(
+            s => s.EnviarAsync(It.Is<EnvioMailMensaje>(m => m.Destinatario == datos.MailComprador && m.Adjuntos.Count == 0)),
+            Times.Once());
+        // Un mail de cancelación no adjunta PDFs (no hay cartones que confirmar, se están
+        // liberando) — nunca se invoca el renderer.
+        cartonPdfRenderer.Verify(r => r.Renderizar(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<int>>()), Times.Never());
+    }
+
+    [Fact]
+    public async Task ProcesarPendientesAsync_ConEnvioTipoCancelacionYDatosNulos_SalteaSinFallar()
+    {
+        var ahoraUtc = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var compraId = Guid.NewGuid();
+        var envio = EnvioMail.CrearCancelacion(compraId, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
+
+        var envioMailRepository = new Mock<IEnvioMailRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var cartonPdfRenderer = new Mock<ICartonPdfRenderer>();
+        var timeProvider = CrearTimeProviderFijo(ahoraUtc);
+
+        envioMailRepository.Setup(r => r.ObtenerPendientesAsync(ahoraUtc)).ReturnsAsync(new List<EnvioMail> { envio });
+        envioMailRepository
+            .Setup(r => r.ObtenerDatosParaCancelacionAsync(compraId))
+            .ReturnsAsync((DatosParaMailCancelacion?)null);
 
         var service = CrearService(envioMailRepository, emailSender, cartonPdfRenderer, timeProvider.Object);
 
