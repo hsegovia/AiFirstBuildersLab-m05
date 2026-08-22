@@ -8,6 +8,20 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-009b**: Mail de confirmación de compra con PDF adjunto y reintentos — cada confirmación de
+  carrito (FEAT-009a) encola un único mail (agrupando todas las `Compra` que produjo, aunque sean de
+  organizadores distintos, vía un `ConfirmacionId` compartido) con el detalle completo de cada compra
+  y un PDF adjunto por cartón (10 números + GUID). Primer uso real de MailKit/QuestPDF del proyecto:
+  envío desacoplado de la respuesta HTTP (`POST /api/compras/confirmar` nunca espera ni depende del
+  mail) vía un patrón outbox — tabla `EnviosMail` en SQL Server + `EnvioMailBackgroundService`
+  (`BackgroundService` nativo de .NET, sin librerías nuevas de background jobs) que reintenta hasta 3
+  veces con 1 minuto entre intentos antes de marcar el envío `Fallido`. Sobrevive a un reinicio del
+  backend (estado persistido, no en memoria). Migración con backfill de `ConfirmacionId` para las
+  `Compra` ya existentes en producción (`Guid.NewGuid()` por fila, nunca un valor compartido).
+  Conexión SMTP con `StartTls` obligatorio y timeout de 30s; ningún log de este flujo incluye
+  PII del comprador, contenido del mail ni credenciales. Nuevo servicio `smtp4dev` en
+  `docker-compose.yml` para tests de integración reales sin mocks. Backend-only.
+
 - **FEAT-009a**: Confirmación de compra (núcleo) — `POST /api/compradores/registro` y
   `POST /api/compradores/login` (públicos, primer flujo de auth de comprador, mismo patrón de
   cookie httpOnly `bingocart_auth` ya usado para organizador) y `POST /api/compras/confirmar`
