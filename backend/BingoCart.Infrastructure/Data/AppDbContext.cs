@@ -136,11 +136,23 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
                     numeros => numeros.Aggregate(0, (hash, n) => HashCode.Combine(hash, n)),
                     numeros => numeros.ToList()));
 
+            entity.Property(c => c.NumeroCorrelativo)
+                .IsRequired();
+
             // Red de seguridad a nivel de esquema para FR-05 (además de la validación en memoria
             // de Block 2): dos cartones del mismo bingo con el mismo conjunto de números violan
             // este índice único y el INSERT falla con DbUpdateException en vez de persistir un
             // duplicado silenciosamente.
             entity.HasIndex(c => new { c.BingoId, c.Numeros })
+                .IsUnique();
+
+            // Misma red de seguridad, misma motivación, para el correlativo (FEAT-009d, FR-11):
+            // garantiza en la base —y no solo en la asignación 1..N de BingoService— que dos
+            // cartones del mismo bingo nunca compartan número correlativo. La violación se deja
+            // explotar como DbUpdateException a propósito: si la generación llegara a duplicar,
+            // tiene que fallar ruidosamente en vez de mostrarle al comprador dos cartones con el
+            // mismo número.
+            entity.HasIndex(c => new { c.BingoId, c.NumeroCorrelativo })
                 .IsUnique();
         });
 

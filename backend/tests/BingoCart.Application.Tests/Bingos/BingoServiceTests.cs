@@ -305,4 +305,31 @@ public class BingoServiceTests
 
         repository.Verify(r => r.EliminarAsync(It.IsAny<Bingo>()), Times.Never());
     }
+
+    [Fact]
+    public async Task CrearBingo_AsignaCorrelativosDistintosDesde1HastaN()
+    {
+        var repository = new Mock<IBingoRepository>();
+        repository.Setup(r => r.TieneBingoActivoAsync(OrganizadorId, It.IsAny<DateTime>()))
+            .ReturnsAsync(false);
+
+        var generador = new Mock<ICartonNumberGenerator>();
+        generador.Setup(g => g.GenerarConjuntosUnicos(5)).Returns(ConjuntosDePrueba(5));
+
+        IReadOnlyList<Carton>? cartonesCreados = null;
+        repository
+            .Setup(r => r.CrearAsync(It.IsAny<Bingo>(), It.IsAny<IReadOnlyList<Carton>>()))
+            .Callback<Bingo, IReadOnlyList<Carton>>((_, c) => cartonesCreados = c)
+            .Returns(Task.CompletedTask);
+
+        var service = CrearService(repository, generador);
+
+        await service.CrearAsync(CrearRequest(cantidadCartones: 5), OrganizadorId);
+
+        Assert.NotNull(cartonesCreados);
+        Assert.Equal(
+            new[] { 1, 2, 3, 4, 5 },
+            cartonesCreados!.Select(c => c.NumeroCorrelativo).ToArray());
+        Assert.Equal(5, cartonesCreados.Select(c => c.NumeroCorrelativo).Distinct().Count());
+    }
 }

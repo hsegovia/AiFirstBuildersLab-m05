@@ -18,8 +18,8 @@ public class DescubrimientoServiceTests
     private static DescubrimientoService CrearService(Mock<IDescubrimientoRepository> repository) =>
         new(repository.Object, TimeProvider.System);
 
-    private static Carton NuevoCarton(Guid bingoId, int inicio = 1) =>
-        Carton.Crear(bingoId, Enumerable.Range(inicio, 10).ToList());
+    private static Carton NuevoCarton(Guid bingoId, int inicio = 1, int numeroCorrelativo = 1) =>
+        Carton.Crear(bingoId, Enumerable.Range(inicio, 10).ToList(), numeroCorrelativo);
 
     [Fact]
     public async Task DescubrirGlobalAsync_ConCartonesDeDosBingosDistintos_ArmaCadaResponseConElResumenQueLeCorresponde()

@@ -160,7 +160,7 @@ public sealed class CarritoControllerTests : IAsyncLifetime
         for (var i = 0; i < cantidad; i++)
         {
             var numeros = Enumerable.Range(1 + i, 10).ToArray();
-            cartones.Add(Carton.Crear(bingoId, numeros));
+            cartones.Add(Carton.Crear(bingoId, numeros, numeroCorrelativo: i + 1));
         }
 
         return cartones;

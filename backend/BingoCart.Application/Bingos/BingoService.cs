@@ -53,9 +53,12 @@ public sealed class BingoService : IBingoService
         // (3) Generación 100% en memoria (NFR-01).
         var conjuntos = _cartonNumberGenerator.GenerarConjuntosUnicos(request.CantidadCartones);
 
-        // (4) Cada Carton se construye a partir del agregado ya validado por Domain.
+        // (4) Cada Carton se construye a partir del agregado ya validado por Domain. El correlativo
+        // 1..N es la POSICIÓN en `conjuntos` —una lista ya materializada por el generador—, no un
+        // número generado: el CSPRNG sigue produciendo únicamente los conjuntos de 10 números
+        // (FEAT-009d, FR-11).
         var cartones = conjuntos
-            .Select(conjunto => Carton.Crear(bingo.Id, conjunto))
+            .Select((conjunto, i) => Carton.Crear(bingo.Id, conjunto, i + 1))
             .ToList();
 
         // (5) Persistencia atómica de bingo + cartones.

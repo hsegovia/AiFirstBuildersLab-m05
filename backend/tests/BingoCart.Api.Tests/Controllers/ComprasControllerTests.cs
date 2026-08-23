@@ -180,7 +180,7 @@ public sealed class ComprasControllerTests : IAsyncLifetime
         for (var i = 0; i < cantidad; i++)
         {
             var numeros = Enumerable.Range(1 + i, 10).ToArray();
-            cartones.Add(Carton.Crear(bingoId, numeros));
+            cartones.Add(Carton.Crear(bingoId, numeros, numeroCorrelativo: i + 1));
         }
 
         return cartones;
@@ -312,7 +312,7 @@ public sealed class ComprasControllerTests : IAsyncLifetime
     {
         var ahoraUtc = DateTime.UtcNow;
         var bingo = Bingo.Crear("Bingo cancelacion e2e", ahoraUtc.AddDays(10), 1, 100m, organizadorId, ahoraUtc);
-        var carton = Carton.Crear(bingo.Id, new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+        var carton = Carton.Crear(bingo.Id, new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }, numeroCorrelativo: 1);
 
         var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(ConnectionString).Options;
         await using var context = new AppDbContext(options);

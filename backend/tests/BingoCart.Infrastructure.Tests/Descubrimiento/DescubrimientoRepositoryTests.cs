@@ -59,8 +59,6 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
             organizadorId: organizadorId,
             ahoraUtc: ahoraUtc);
 
-    private static Carton NuevoCarton(Guid bingoId, params int[] numeros) => Carton.Crear(bingoId, numeros);
-
     // Genera `cantidad` cartones únicos y válidos para `bingoId`, sin colisionar entre sí: usa una
     // ventana deslizante de 10 números dentro del rango 1-90 (1-10, 2-11, 3-12, ...) — cada
     // desplazamiento produce un conjunto de números distinto de los anteriores, soporta hasta 81
@@ -71,7 +69,7 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         for (var i = 0; i < cantidad; i++)
         {
             var numeros = Enumerable.Range(1 + i, 10).ToArray();
-            cartones.Add(Carton.Crear(bingoId, numeros));
+            cartones.Add(Carton.Crear(bingoId, numeros, numeroCorrelativo: i + 1));
         }
 
         return cartones;

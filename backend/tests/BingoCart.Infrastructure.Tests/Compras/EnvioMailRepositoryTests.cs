@@ -112,8 +112,8 @@ public sealed class EnvioMailRepositoryTests : IAsyncLifetime
         var bingoUno = Bingo.Crear("Bingo Uno", ahoraUtc.AddDays(5), 100, 50m, organizadorUno.Id, ahoraUtc);
         var bingoDos = Bingo.Crear("Bingo Dos", ahoraUtc.AddDays(6), 100, 80m, organizadorDos.Id, ahoraUtc);
 
-        var cartonUno = Carton.Crear(bingoUno.Id, new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
-        var cartonDos = Carton.Crear(bingoDos.Id, new[] { 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 });
+        var cartonUno = Carton.Crear(bingoUno.Id, new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }, numeroCorrelativo: 1);
+        var cartonDos = Carton.Crear(bingoDos.Id, new[] { 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 }, numeroCorrelativo: 1);
 
         var compraUno = Compra.Crear(
             organizadorUno.Id, comprador.Id, confirmacionId,
