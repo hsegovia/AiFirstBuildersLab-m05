@@ -5,7 +5,7 @@
 | Ticket | FEAT-009d |
 | Tracker | none |
 | Date | 2026-08-23 |
-| PRD loops | 2 |
+| PRD loops | 3 |
 
 ## Context and Problem
 
@@ -65,6 +65,9 @@ del mail, y permitirle corregir sus datos mientras hacerlo todavía sea seguro.
   ese cartón que el comprador puede ver a lo largo de su recorrido: el descubrimiento de cartones
   disponibles, el carrito, el mail de confirmación de compra, la respuesta de confirmación de compra,
   el listado de cartones adquiridos y el PDF del cartón. *(RF-20a, RF-04b)*
+- FR-13: El sistema debe exigir la contraseña actual del comprador para aceptar una actualización de
+  datos de cuenta, y debe rechazar la operación si esa contraseña no coincide con la de la cuenta
+  autenticada. *(RF-21, RNF-04)*
 
 ## Non-Functional Requirements
 
@@ -128,6 +131,10 @@ del mail, y permitirle corregir sus datos mientras hacerlo todavía sea seguro.
 - AC-15: WHEN un cartón se muestra en el descubrimiento público de cartones disponibles, THE sistema
   SHALL incluir su número correlativo sin aceptarlo como criterio de búsqueda ni de selección en esa
   misma superficie. *(FR-12, FR-11, RNF-07)*
+- AC-16: IF una solicitud de actualización de datos de cuenta llega sin la contraseña actual o con
+  una contraseña que no coincide con la de la cuenta autenticada, THEN THE sistema SHALL rechazar la
+  operación sin modificar ninguno de los datos enviados y sin revelar cuál de los otros datos habría
+  sido válido. *(FR-13)*
 
 ## Decisiones de producto tomadas
 
@@ -197,6 +204,18 @@ que los cartones creados a partir de este ticket reciben su correlativo en orden
 que los preexistentes lo reciben en orden de GUID —determinista y estable entre entornos, pero
 arbitrario respecto de cuándo se generó cada uno—. AC-12 se cumple en ambas poblaciones.
 
+**D-09 — La actualización de datos exige la contraseña actual (FR-13).** El threat model encontró que
+el mail **es la credencial de login** de este sistema —la autenticación resuelve al usuario por su
+dirección—, de modo que el `PUT` de datos de cuenta cambia con qué se entra. Sin re-autenticación,
+quien obtuviera un token válido podía dejar al comprador sin poder iniciar sesión (su dirección deja
+de resolver a ninguna cuenta y el proyecto no tiene recuperación de contraseña) y redirigir a su
+propia casilla las confirmaciones pendientes con los cartones adjuntos, aprovechando que D-04 resuelve
+al destinatario en tiempo de envío. Se verificó además que **no existe ningún control compensatorio
+del lado de la sesión**: la autenticación es JWT stateless y rotar el `SecurityStamp` no revoca los
+tokens ya emitidos. Decisión del usuario (hsegovia, 2026-08-23): **la solicitud lleva la contraseña
+actual y se verifica antes de tocar cualquier dato**. Esto no contradice el punto de "Fuera de
+Alcance" sobre el cambio de contraseña: la contraseña se **verifica**, nunca se modifica.
+
 ## Assumptions
 
 - **A-01:** El listado incluye los cartones de compras canceladas, marcados como tales. AC-22 del PRD
@@ -207,8 +226,11 @@ arbitrario respecto de cuándo se generó cada uno—. AC-12 se cumple en ambas 
   no lo cubre. Se permite porque el PDF es un comprobante de lo que ocurrió, no un título de propiedad
   vigente: el cartón ya volvió a estar disponible para la venta (FEAT-009c) y el estado real lo dicta
   el listado, no el archivo. Negar la descarga escondería evidencia de una operación que existió.
-- **A-03:** La actualización de datos es total, no parcial: la solicitud lleva los cuatro campos y los
-  cuatro se persisten juntos. RF-21 los enumera como un conjunto.
+- **A-03 (actualizada en el loop 3):** La actualización de datos es total, no parcial: la solicitud
+  lleva los cuatro campos y los cuatro se persisten juntos. RF-21 los enumera como un conjunto. A
+  partir de FR-13 la solicitud lleva **un quinto campo**, la contraseña actual, que **no es un dato de
+  la cuenta a persistir** sino la prueba de identidad que autoriza el cambio: se verifica y se
+  descarta.
 - **A-04 (corregida en el loop 1):** Los datos actualizados aplican a las compras existentes por
   referencia — la compra apunta al comprador, no copia sus datos —, así que no hay que propagar nada
   hacia las compras. AC-23 se cumple sin trabajo adicional. **Corrección:** la versión original de esta
@@ -277,6 +299,13 @@ arbitrario respecto de cuándo se generó cada uno—. AC-12 se cumple en ambas 
   prueba de números repetidos pase por el motivo equivocado. Mitigación: los tests que ejercitan la
   unicidad de números deben asignar correlativos distintos, de modo que la única restricción que puedan
   violar sea la que dicen estar probando.
+- **R-10: Apoderamiento de cuenta por cambio de mail.** El mail es la credencial de login: cambiarlo
+  cambia con qué se entra, y quien tuviera una sesión ajena podía dejar al comprador afuera y
+  redirigir sus mails de confirmación. Mitigación: FR-13 exige la contraseña actual, que un token
+  robado no provee. Riesgo residual documentado en el threat model: no se verifica que el comprador
+  controle la dirección **nueva**, de modo que un error de tipeo en el mail deja la cuenta con una
+  dirección a la que no llega nada. Eso corresponde a un flujo de verificación de mail, que el
+  proyecto no tiene en ningún lado y no se introduce en este ticket.
 - **R-05: El listado se degrada con muchos cartones.** Un comprador con cientos de cartones cruzando
   compras, bingos y organizadores puede generar una consulta pesada. Mitigación: paginación obligatoria
   (FR-03, NFR-01) y el techo de rendimiento de NFR-03.
