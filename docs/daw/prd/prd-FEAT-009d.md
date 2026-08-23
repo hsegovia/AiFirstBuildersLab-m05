@@ -5,7 +5,7 @@
 | Ticket | FEAT-009d |
 | Tracker | none |
 | Date | 2026-08-23 |
-| PRD loops | 1 |
+| PRD loops | 2 |
 
 ## Context and Problem
 
@@ -61,6 +61,10 @@ del mail, y permitirle corregir sus datos mientras hacerlo todavía sea seguro.
   comenzando en 1 y sin repetirse entre cartones del mismo bingo. Ese número es exclusivamente de
   presentación: el sistema no debe aceptarlo como identificador en ninguna operación, que sigue
   requiriendo el identificador único del cartón. *(RF-20a, RF-04b)*
+- FR-12: El sistema debe mostrar el número correlativo de un cartón en todas las representaciones de
+  ese cartón que el comprador puede ver a lo largo de su recorrido: el descubrimiento de cartones
+  disponibles, el carrito, el mail de confirmación de compra, la respuesta de confirmación de compra,
+  el listado de cartones adquiridos y el PDF del cartón. *(RF-20a, RF-04b)*
 
 ## Non-Functional Requirements
 
@@ -90,7 +94,8 @@ del mail, y permitirle corregir sus datos mientras hacerlo todavía sea seguro.
   sistema SHALL devolver como máximo 50 cartones en esa página junto con el total sin paginar.
   *(FR-03, NFR-01)*
 - AC-04: WHEN un comprador autenticado solicita el PDF de un cartón que le pertenece, THE sistema SHALL
-  devolver un documento PDF con los 10 números de ese cartón y su identificador. *(FR-04, RF-20b)*
+  devolver un documento PDF con los 10 números de ese cartón, su identificador y su número correlativo
+  dentro del bingo. *(FR-04, FR-12, RF-20b)*
 - AC-05: IF un comprador autenticado solicita el PDF de un cartón que no le pertenece o que no existe,
   THEN THE sistema SHALL rechazar la solicitud con el mismo error de recurso no encontrado en ambos
   casos, sin revelar cuál de los dos ocurrió. *(FR-05, RNF-04, AC-26)*
@@ -117,6 +122,12 @@ del mail, y permitirle corregir sus datos mientras hacerlo todavía sea seguro.
 - AC-13: IF una solicitud usa el número correlativo de un cartón en lugar de su identificador único
   para descargar su PDF, THEN THE sistema SHALL rechazarla sin devolver ningún cartón. *(FR-11,
   RNF-07)*
+- AC-14: WHEN un comprador ve un mismo cartón en el descubrimiento, en el carrito, en el mail de
+  confirmación y en su listado de cartones adquiridos, THE sistema SHALL mostrar en las cuatro
+  representaciones el mismo número correlativo para ese cartón. *(FR-12)*
+- AC-15: WHEN un cartón se muestra en el descubrimiento público de cartones disponibles, THE sistema
+  SHALL incluir su número correlativo sin aceptarlo como criterio de búsqueda ni de selección en esa
+  misma superficie. *(FR-12, FR-11, RNF-07)*
 
 ## Decisiones de producto tomadas
 
@@ -164,6 +175,27 @@ muestra**: el identificador único del cartón sigue siendo el único aceptado e
 —descarga de PDF incluida— y adivinar un correlativo no da acceso a nada (AC-13). Consecuencia asumida:
 el ticket incorpora un cambio de modelo con migración y backfill de los cartones ya existentes, y toca
 la generación de cartones de FEAT-003.
+
+**D-07 — El correlativo se muestra en todo el recorrido del comprador, incluidas las superficies
+públicas (FR-12).** La primera versión de FR-11 lo mostraba solo en "mis cartones", lo que dejaba al
+comprador viendo el cartón sin número al descubrirlo, al ponerlo en el carrito y en el mail, y
+encontrándose con un número que nunca había visto recién después de comprar. Decisión del usuario
+(hsegovia, 2026-08-23): **se muestra de punta a punta**, en las cinco proyecciones existentes de cartón
+y en el PDF. Consecuencia verificada y asumida: el descubrimiento de cartones y el carrito son
+endpoints `[AllowAnonymous]` (`CartonesController.cs:16`, `CarritoController.cs:20`), de modo que el
+correlativo queda visible para cualquier visitante anónimo, no solo para el comprador que ya compró.
+Se acepta porque esas superficies ya exponen hoy el identificador único y los 10 números de cada cartón
+disponible, con lo cual el inventario ya es observable; el correlativo agrega el orden y nada más. La
+salvaguarda de D-06 se mantiene intacta: ninguna operación lo acepta como entrada (AC-13, AC-15).
+
+**D-08 — El backfill del correlativo ordena por `Id` (FR-11, R-07).** La tabla `Cartones` tiene
+exactamente tres columnas —`Id`, `BingoId`, `NumerosSerializados`— y ninguna refleja el orden de
+inserción: no hay `FechaCreacionUtc` ni columna de identidad. El único criterio determinista disponible
+sin agregar una columna más es `Id`; ordenar por `NumerosSerializados` depende del collation, que este
+proyecto no fija en ningún lado. Decisión: **`ORDER BY Id`**, con la consecuencia asumida por escrito de
+que los cartones creados a partir de este ticket reciben su correlativo en orden de generación, mientras
+que los preexistentes lo reciben en orden de GUID —determinista y estable entre entornos, pero
+arbitrario respecto de cuándo se generó cada uno—. AC-12 se cumple en ambas poblaciones.
 
 ## Assumptions
 
@@ -233,6 +265,18 @@ la generación de cartones de FEAT-003.
   determinista, dos entornos podrían numerar el mismo bingo distinto. Mitigación: la migración debe
   fijar un orden determinista y documentado, y AC-12 exige que dentro de un bingo los números sean
   distintos y correlativos desde 1.
+- **R-08: El correlativo queda expuesto en superficies anónimas.** FR-12 lo lleva al descubrimiento y
+  al carrito, que son públicos: un visitante sin cuenta puede ver el orden de los cartones de un bingo y
+  seguir cuáles se van vendiendo. Mitigación: el número no es direccionable en ninguna operación
+  (FR-11, AC-13, AC-15) y esas superficies ya exponen hoy el identificador único y los 10 números de
+  cada cartón disponible, con lo cual no habilitan nada que antes no fuera observable. Se documenta como
+  decisión consciente (D-07), no como efecto colateral, y el threat model debe tratarlo como ítem propio.
+- **R-09: El índice único del correlativo enmascara el índice único de números.** Agregar
+  `UNIQUE (BingoId, NumeroCorrelativo)` convive con el `UNIQUE (BingoId, NumerosSerializados)` ya
+  existente, y una inserción duplicada podría violar el primero antes que el segundo, haciendo que una
+  prueba de números repetidos pase por el motivo equivocado. Mitigación: los tests que ejercitan la
+  unicidad de números deben asignar correlativos distintos, de modo que la única restricción que puedan
+  violar sea la que dicen estar probando.
 - **R-05: El listado se degrada con muchos cartones.** Un comprador con cientos de cartones cruzando
   compras, bingos y organizadores puede generar una consulta pesada. Mitigación: paginación obligatoria
   (FR-03, NFR-01) y el techo de rendimiento de NFR-03.
@@ -245,5 +289,10 @@ la generación de cartones de FEAT-003.
   tal cual; este ticket no construye generación de PDF.
 - **FEAT-009c** (mergeado) — el estado `Cancelado` de `Compra` y el criterio de que cancelar no borra
   `CompraCartones`. FR-02 y D-02 dependen de ambas cosas.
-- **FEAT-003** (mergeado) — `Bingo.FechaSorteoUtc`, el ancla temporal de FR-07.
+- **FEAT-008a** (mergeado) — el descubrimiento público de cartones disponibles y su proyección de
+  cartón. FR-12 la modifica para incluir el correlativo, y AC-15 se verifica sobre esa superficie.
+- **FEAT-008b** (mergeado) — el carrito y sus dos proyecciones de cartón. FR-12 las modifica igual que
+  la anterior.
+- **FEAT-003** (mergeado) — `Bingo.FechaSorteoUtc`, el ancla temporal de FR-07, y la generación de
+  cartones de `BingoService`, donde FR-11 asigna el correlativo.
 - **`CuitValidator`** (FEAT-001a, Domain) — FR-09 reutiliza sus dos reglas sin cambiarlas.
