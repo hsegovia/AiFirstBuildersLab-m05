@@ -5,7 +5,7 @@
 | Ticket | FEAT-009d |
 | Tracker | none |
 | Date | 2026-08-23 |
-| PRD loops | 0 |
+| PRD loops | 1 |
 
 ## Context and Problem
 
@@ -36,8 +36,9 @@ del mail, y permitirle corregir sus datos mientras hacerlo todavía sea seguro.
 ## Functional Requirements
 
 - FR-01: El sistema debe permitir a un comprador autenticado listar todos los cartones que adquirió a
-  través de la plataforma, mostrando por cada uno el número de cartón, el bingo, el organizador y el
-  estado de pago de la compra a la que pertenece. *(RF-20a)*
+  través de la plataforma, mostrando por cada uno su número de cartón dentro del bingo, su
+  identificador único, sus 10 números, el nombre del bingo, el nombre de la organización y el estado de
+  pago de la compra a la que pertenece. *(RF-20a)*
 - FR-02: El sistema debe incluir en ese listado los cartones de compras en cualquier estado
   (`PendienteConfirmacionPago`, `Confirmado`, `Cancelado`), sin omitir ninguno. *(RF-20a)*
 - FR-03: El sistema debe paginar el listado de cartones del comprador. *(RF-20a)*
@@ -54,6 +55,12 @@ del mail, y permitirle corregir sus datos mientras hacerlo todavía sea seguro.
   pertenece a otra cuenta. *(RF-21)*
 - FR-09: El sistema debe validar el CUIT solicitado con las mismas reglas ya vigentes en el registro
   del comprador: 11 dígitos numéricos y dígito verificador válido. *(RF-21)*
+- FR-10: El sistema debe rechazar la actualización de datos de cuenta si el CUIT solicitado ya
+  pertenece a otra cuenta. *(RF-21)*
+- FR-11: El sistema debe asignar a cada cartón, al generarlo, un número correlativo dentro de su bingo,
+  comenzando en 1 y sin repetirse entre cartones del mismo bingo. Ese número es exclusivamente de
+  presentación: el sistema no debe aceptarlo como identificador en ninguna operación, que sigue
+  requiriendo el identificador único del cartón. *(RF-20a, RF-04b)*
 
 ## Non-Functional Requirements
 
@@ -73,8 +80,9 @@ del mail, y permitirle corregir sus datos mientras hacerlo todavía sea seguro.
 *(EARS — see `.daw/rules/validation-rules.instructions.md` §1 for the five patterns)*
 
 - AC-01: WHEN un comprador autenticado con compras registradas solicita su listado de cartones, THE
-  sistema SHALL devolver todos sus cartones adquiridos, cada uno con su número de cartón, el nombre del
-  bingo, el nombre del organizador y el estado de pago de su compra. *(FR-01, RF-20a)*
+  sistema SHALL devolver todos sus cartones adquiridos, cada uno con su número correlativo dentro del
+  bingo, su identificador único, sus 10 números, el nombre del bingo, el nombre de la organización y el
+  estado de pago de su compra. *(FR-01, RF-20a)*
 - AC-02: WHEN un comprador autenticado tiene cartones en compras con distinto estado, THE sistema SHALL
   incluirlos todos en el listado, indicando en cada uno si su compra está pendiente de confirmación,
   confirmada o cancelada. *(FR-02)*
@@ -101,6 +109,14 @@ del mail, y permitirle corregir sus datos mientras hacerlo todavía sea seguro.
 - AC-10: WHEN un comprador autenticado cuyo mail de confirmación quedó marcado como fallido tras agotar
   sus reintentos solicita su listado de cartones, THE sistema SHALL devolverlo completo y permitir la
   descarga de sus PDF, sin depender del estado del envío de mail. *(FR-01, FR-04, RF-20a, AC-14b)*
+- AC-11: IF un comprador autenticado intenta actualizar su CUIT a uno que ya pertenece a otra cuenta,
+  THEN THE sistema SHALL rechazar la operación e informar que ese CUIT ya está en uso, sin modificar
+  ninguno de los otros datos enviados. *(FR-10)*
+- AC-12: WHEN se genera el conjunto de cartones de un bingo de N cartones, THE sistema SHALL asignar a
+  cada cartón un número correlativo distinto entre 1 y N dentro de ese bingo. *(FR-11)*
+- AC-13: IF una solicitud usa el número correlativo de un cartón en lugar de su identificador único
+  para descargar su PDF, THEN THE sistema SHALL rechazarla sin devolver ningún cartón. *(FR-11,
+  RNF-07)*
 
 ## Decisiones de producto tomadas
 
@@ -126,6 +142,29 @@ completo. Consecuencia asumida para PLAN: los bloques del spec deben respetar es
 —los de "mis cartones" y los de "datos de cuenta" no comparten archivos— para que el ticket siga siendo
 revisable por partes aunque se entregue junto.
 
+**D-04 — Un envío de mail pendiente se entrega al mail nuevo.** El impact scan probó que `EnvioMail`
+guarda `CompradorId`, no la dirección, y que el destinatario se resuelve recién al enviar. Con un envío
+en cola, cambiar el mail redirige la confirmación de una compra ya hecha a la dirección nueva. Decisión
+del usuario (hsegovia, 2026-08-23): **se deja así**, sin congelar el destinatario ni bloquear el
+cambio. Es coherente con la intención del comprador —cambió su mail porque quiere recibir ahí— y no
+requiere tocar el outbox de FEAT-009b. Queda documentado como comportamiento deliberado, no como
+efecto colateral no advertido.
+
+**D-05 — Se reemite la cookie de sesión tras una actualización exitosa.** El JWT lleva el mail en el
+claim `Email`; sin reemitir, la cookie vigente seguiría con el mail viejo hasta expirar. La
+autorización usa `NameIdentifier`, así que nada se rompe funcionalmente, pero el token quedaría con un
+dato falso. Decisión del usuario (hsegovia, 2026-08-23): al actualizar con éxito se emite una cookie
+nueva con los claims frescos, reutilizando el mismo mecanismo de emisión del login.
+
+**D-06 — El número correlativo de cartón es de presentación, nunca direccionable (FR-11).** `Carton`
+no tenía ningún campo numérico y AC-01 pedía mostrar un "número de cartón". Decisión del usuario
+(hsegovia, 2026-08-23): se agrega un correlativo por bingo. Para no violar la prohibición de
+`AGENTS.md` de exponer identificadores secuenciales predecibles (RNF-07/R-02), ese número **solo se
+muestra**: el identificador único del cartón sigue siendo el único aceptado en cualquier operación
+—descarga de PDF incluida— y adivinar un correlativo no da acceso a nada (AC-13). Consecuencia asumida:
+el ticket incorpora un cambio de modelo con migración y backfill de los cartones ya existentes, y toca
+la generación de cartones de FEAT-003.
+
 ## Assumptions
 
 - **A-01:** El listado incluye los cartones de compras canceladas, marcados como tales. AC-22 del PRD
@@ -138,9 +177,15 @@ revisable por partes aunque se entregue junto.
   el listado, no el archivo. Negar la descarga escondería evidencia de una operación que existió.
 - **A-03:** La actualización de datos es total, no parcial: la solicitud lleva los cuatro campos y los
   cuatro se persisten juntos. RF-21 los enumera como un conjunto.
-- **A-04:** Los datos actualizados aplican a las compras existentes por referencia — la compra apunta al
-  comprador, no copia sus datos —, así que no hay que propagar nada. AC-23 dice "estos aplican a todas
-  sus compras" y eso se cumple sin trabajo adicional.
+- **A-04 (corregida en el loop 1):** Los datos actualizados aplican a las compras existentes por
+  referencia — la compra apunta al comprador, no copia sus datos —, así que no hay que propagar nada
+  hacia las compras. AC-23 se cumple sin trabajo adicional. **Corrección:** la versión original de esta
+  assumption decía que nada más se veía afectado, y el impact scan probó que eso era falso para el
+  outbox de mail, que resuelve al destinatario en tiempo de envío. Ese caso está ahora cubierto por
+  D-04.
+- **A-05:** La respuesta de la actualización de datos devuelve el estado ya actualizado de la cuenta,
+  de modo que AC-06 ("reflejarlos en las consultas posteriores") se satisface sin agregar un endpoint
+  de lectura. El proyecto hoy no tiene un endpoint de perfil del comprador y este ticket no lo crea.
 
 ## Out of Scope
 
@@ -178,6 +223,16 @@ revisable por partes aunque se entregue junto.
   a los 61 minutos y que se procese a los 59. Mitigación: la ventana se evalúa en el servidor al
   procesar (NFR-05), no en el cliente. El margen residual es de segundos y no cambia el resultado
   práctico; se acepta como riesgo menor.
+- **R-06: El correlativo de cartón se usa como identificador por error.** FR-11 lo declara de
+  presentación, pero una implementación descuidada podría aceptarlo en una ruta y reintroducir la
+  enumerabilidad que `AGENTS.md` prohíbe (RNF-07/R-02). Mitigación: AC-13 exige un test explícito de que
+  usar el correlativo en lugar del identificador no devuelve ningún cartón, y ninguna firma pública del
+  ticket lo recibe como parámetro.
+- **R-07: El backfill del correlativo asigna números inestables.** Los cartones existentes en
+  producción no tienen correlativo y hay que asignárselo por migración; si el criterio de orden no es
+  determinista, dos entornos podrían numerar el mismo bingo distinto. Mitigación: la migración debe
+  fijar un orden determinista y documentado, y AC-12 exige que dentro de un bingo los números sean
+  distintos y correlativos desde 1.
 - **R-05: El listado se degrada con muchos cartones.** Un comprador con cientos de cartones cruzando
   compras, bingos y organizadores puede generar una consulta pesada. Mitigación: paginación obligatoria
   (FR-03, NFR-01) y el techo de rendimiento de NFR-03.
