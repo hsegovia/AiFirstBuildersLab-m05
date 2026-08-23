@@ -16,7 +16,7 @@ public class EnvioMailTests
         var compradorId = Guid.NewGuid();
         var ahoraUtc = DateTime.UtcNow;
 
-        var envio = EnvioMail.Crear(confirmacionId, compradorId, ahoraUtc);
+        var envio = EnvioMail.CrearConfirmacion(confirmacionId, compradorId, ahoraUtc);
 
         Assert.NotEqual(Guid.Empty, envio.Id);
         Assert.Equal(confirmacionId, envio.ConfirmacionId);
@@ -31,7 +31,7 @@ public class EnvioMailTests
     public void RegistrarIntentoFallido_AntesDelTercerIntento_SigueEnPendienteConProximoIntentoEnUnMinuto()
     {
         var ahoraCreacion = DateTime.UtcNow;
-        var envio = EnvioMail.Crear(Guid.NewGuid(), Guid.NewGuid(), ahoraCreacion);
+        var envio = EnvioMail.CrearConfirmacion(Guid.NewGuid(), Guid.NewGuid(), ahoraCreacion);
         var ahoraFallo = ahoraCreacion.AddMinutes(5);
 
         envio.RegistrarIntentoFallido(ahoraFallo);
@@ -45,7 +45,7 @@ public class EnvioMailTests
     public void RegistrarIntentoFallido_EnElTercerIntento_TransicionaAFallido()
     {
         var ahoraCreacion = DateTime.UtcNow;
-        var envio = EnvioMail.Crear(Guid.NewGuid(), Guid.NewGuid(), ahoraCreacion);
+        var envio = EnvioMail.CrearConfirmacion(Guid.NewGuid(), Guid.NewGuid(), ahoraCreacion);
         var ahoraFallo1 = ahoraCreacion.AddMinutes(1);
         var ahoraFallo2 = ahoraCreacion.AddMinutes(2);
         var ahoraFallo3 = ahoraCreacion.AddMinutes(3);
@@ -65,10 +65,36 @@ public class EnvioMailTests
     [Fact]
     public void RegistrarExito_FijaEstadoExitoso()
     {
-        var envio = EnvioMail.Crear(Guid.NewGuid(), Guid.NewGuid(), DateTime.UtcNow);
+        var envio = EnvioMail.CrearConfirmacion(Guid.NewGuid(), Guid.NewGuid(), DateTime.UtcNow);
 
         envio.RegistrarExito();
 
         Assert.Equal(EstadoEnvioMail.Exitoso, envio.Estado);
+    }
+
+    [Fact]
+    public void CrearConfirmacion_DevuelveTipoEnvioConfirmacionYConfirmacionIdSeteado()
+    {
+        var confirmacionId = Guid.NewGuid();
+        var compradorId = Guid.NewGuid();
+
+        var envio = EnvioMail.CrearConfirmacion(confirmacionId, compradorId, DateTime.UtcNow);
+
+        Assert.Equal(TipoEnvioMail.Confirmacion, envio.TipoEnvio);
+        Assert.Equal(confirmacionId, envio.ConfirmacionId);
+        Assert.Null(envio.CompraId);
+    }
+
+    [Fact]
+    public void CrearCancelacion_DevuelveTipoEnvioCancelacionYCompraIdSeteado()
+    {
+        var compraId = Guid.NewGuid();
+        var compradorId = Guid.NewGuid();
+
+        var envio = EnvioMail.CrearCancelacion(compraId, compradorId, DateTime.UtcNow);
+
+        Assert.Equal(TipoEnvioMail.Cancelacion, envio.TipoEnvio);
+        Assert.Equal(compraId, envio.CompraId);
+        Assert.Null(envio.ConfirmacionId);
     }
 }

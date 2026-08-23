@@ -35,10 +35,17 @@ public sealed class EnvioMailService : IEnvioMailService
         _logger = logger;
     }
 
-    public async Task EncolarAsync(Guid confirmacionId, Guid compradorId)
+    public async Task EncolarConfirmacionAsync(Guid confirmacionId, Guid compradorId)
     {
         var ahoraUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        var envio = EnvioMail.Crear(confirmacionId, compradorId, ahoraUtc);
+        var envio = EnvioMail.CrearConfirmacion(confirmacionId, compradorId, ahoraUtc);
+        await _envioMailRepository.EncolarAsync(envio);
+    }
+
+    public async Task EncolarCancelacionAsync(Guid compraId, Guid compradorId)
+    {
+        var ahoraUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        var envio = EnvioMail.CrearCancelacion(compraId, compradorId, ahoraUtc);
         await _envioMailRepository.EncolarAsync(envio);
     }
 
@@ -54,19 +61,44 @@ public sealed class EnvioMailService : IEnvioMailService
         {
             try
             {
-                var datos = await _envioMailRepository.ObtenerDatosParaEnviarAsync(envio.ConfirmacionId);
-                if (datos is null)
+                EnvioMailMensaje? mensaje;
+
+                // FEAT-009c, Block 2: ramificación real por TipoEnvio (ya no un `!` interino —
+                // ConfirmacionId/CompraId son Guid? porque cada TipoEnvio setea solo uno de los dos;
+                // el `!` de cada rama está justificado por esa invariante, garantizada por
+                // EnvioMail.CrearConfirmacion/CrearCancelacion).
+                if (envio.TipoEnvio == TipoEnvioMail.Confirmacion)
                 {
-                    // Caso esperable, no una excepción (ver "Error handling" del spec): se saltea
-                    // sin marcar Fallido, el envío queda Pendiente por si el dato reaparece.
-                    _logger.LogWarning(
-                        "No se encontraron datos para el envio {EnvioId} de la confirmacion {ConfirmacionId}; se saltea.",
-                        envio.Id,
-                        envio.ConfirmacionId);
-                    continue;
+                    var datos = await _envioMailRepository.ObtenerDatosParaEnviarAsync(envio.ConfirmacionId!.Value);
+                    if (datos is null)
+                    {
+                        // Caso esperable, no una excepción (ver "Error handling" del spec): se
+                        // saltea sin marcar Fallido, el envío queda Pendiente por si el dato
+                        // reaparece.
+                        _logger.LogWarning(
+                            "No se encontraron datos para el envio {EnvioId} de la confirmacion {ConfirmacionId}; se saltea.",
+                            envio.Id,
+                            envio.ConfirmacionId);
+                        continue;
+                    }
+
+                    mensaje = ArmarMensaje(datos);
+                }
+                else
+                {
+                    var datos = await _envioMailRepository.ObtenerDatosParaCancelacionAsync(envio.CompraId!.Value);
+                    if (datos is null)
+                    {
+                        _logger.LogWarning(
+                            "No se encontraron datos para el envio {EnvioId} de la compra {CompraId}; se saltea.",
+                            envio.Id,
+                            envio.CompraId);
+                        continue;
+                    }
+
+                    mensaje = ArmarMensajeCancelacion(datos);
                 }
 
-                var mensaje = ArmarMensaje(datos);
                 await _emailSender.EnviarAsync(mensaje);
 
                 envio.RegistrarExito();
@@ -77,12 +109,12 @@ public sealed class EnvioMailService : IEnvioMailService
                 envio.RegistrarIntentoFallido(ahoraUtc);
                 await _envioMailRepository.ActualizarAsync(envio);
 
-                // R-01/R-02 (HIGH, threat model): ÚNICAMENTE tipo de excepción + IDs de envío. NUNCA
+                // R-01/R-02 (HIGH, threat model): ÚNICAMENTE tipo de excepción + IDs opacos. NUNCA
                 // ex.Message, NUNCA PII del comprador ni contenido del mensaje.
                 _logger.LogWarning(
-                    "Fallo el intento de envio {EnvioId} de la confirmacion {ConfirmacionId}. Tipo de excepcion: {TipoExcepcion}.",
+                    "Fallo el intento de envio {EnvioId} (tipo {TipoEnvio}). Tipo de excepcion: {TipoExcepcion}.",
                     envio.Id,
-                    envio.ConfirmacionId,
+                    envio.TipoEnvio,
                     ex.GetType().Name);
             }
         }
@@ -139,5 +171,27 @@ public sealed class EnvioMailService : IEnvioMailService
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Arma el mensaje de cancelación (spec FEAT-009c, Block 2): un aviso simple, SIN adjuntos PDF
+    /// (no hay cartones que confirmar, se están liberando). <see cref="WebUtility.HtmlEncode"/>
+    /// aplicado a <c>NombreComprador</c>/<c>NombreOrganizacion</c> antes de interpolarlos en el
+    /// cuerpo HTML — mismo mitigation que R-07 del threat model de FEAT-009b (<see cref="ArmarCuerpoHtml"/>):
+    /// son campos suministrados por el comprador/organizador, y el cuerpo del mail es HTML.
+    /// </summary>
+    private static EnvioMailMensaje ArmarMensajeCancelacion(DatosParaMailCancelacion datos)
+    {
+        var sb = new StringBuilder();
+        sb.Append("<p>Hola ").Append(WebUtility.HtmlEncode(datos.NombreComprador))
+            .Append(", tu compra en ").Append(WebUtility.HtmlEncode(datos.NombreOrganizacion))
+            .Append(" fue cancelada.</p>");
+        sb.Append("<p>Compra ").Append(datos.CompraId).Append("</p>");
+
+        return new EnvioMailMensaje(
+            datos.MailComprador,
+            "Tu compra fue cancelada",
+            sb.ToString(),
+            Array.Empty<AdjuntoMail>());
     }
 }

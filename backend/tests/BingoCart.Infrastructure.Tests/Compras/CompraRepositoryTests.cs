@@ -112,4 +112,117 @@ public sealed class CompraRepositoryTests : IAsyncLifetime
 
         Assert.False(compraDelIntentoPersistida);
     }
+
+    // Spec FEAT-009c, Block 3: ObtenerPorIdAsync/GuardarCambiosAsync/ListarPorOrganizadorAsync,
+    // implementaciones reales contra SQL Server que reemplazan el CS0535 de partida de este bloque.
+
+    [Fact]
+    public async Task ObtenerPorIdAsync_ConIdExistente_DevuelveLaCompraTrackeada()
+    {
+        var compra = NuevaCompra(Guid.NewGuid(), Guid.NewGuid(), MedioPago.Efectivo, Guid.NewGuid());
+        _context.Compras.Add(compra);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ObtenerPorIdAsync(compra.Id);
+
+        Assert.NotNull(resultado);
+        Assert.Equal(compra.Id, resultado!.Id);
+        // "Trackeada" (spec: mismo patrón que IBingoRepository.ObtenerPorIdAsync, sin AsNoTracking):
+        // el ChangeTracker del mismo DbContext debe reportar la entidad, no un objeto suelto.
+        Assert.Equal(EntityState.Unchanged, _context.Entry(resultado).State);
+    }
+
+    [Fact]
+    public async Task ObtenerPorIdAsync_ConIdInexistente_DevuelveNull()
+    {
+        var resultado = await _repository.ObtenerPorIdAsync(Guid.NewGuid());
+
+        Assert.Null(resultado);
+    }
+
+    [Fact]
+    public async Task GuardarCambiosAsync_TrasMutarUnaEntidadObtenida_PersisteElCambio()
+    {
+        var compra = NuevaCompra(Guid.NewGuid(), Guid.NewGuid(), MedioPago.Efectivo, Guid.NewGuid());
+        _context.Compras.Add(compra);
+        await _context.SaveChangesAsync();
+
+        var compraTrackeada = await _repository.ObtenerPorIdAsync(compra.Id);
+        compraTrackeada!.ConfirmarPago();
+        await _repository.GuardarCambiosAsync();
+
+        // Contra SQL Server real, con un DbContext NUEVO (no el mismo _context, para no leer del
+        // identity map en memoria — la aserción real es que la fila en la base cambió).
+        var optionsNuevo = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(ConnectionString).Options;
+        await using var contextoNuevo = new AppDbContext(optionsNuevo);
+        var persistida = await contextoNuevo.Compras.SingleAsync(c => c.Id == compra.Id);
+
+        Assert.Equal(EstadoCompra.Confirmado, persistida.Estado);
+    }
+
+    [Fact]
+    public async Task ListarPorOrganizadorAsync_ConTresComprasYPageSizeDos_DevuelveDosYTotalTres()
+    {
+        var organizadorId = Guid.NewGuid();
+        var compradorId = Guid.NewGuid();
+        var compras = new[]
+        {
+            NuevaCompra(organizadorId, compradorId, MedioPago.Efectivo, Guid.NewGuid()),
+            NuevaCompra(organizadorId, compradorId, MedioPago.Efectivo, Guid.NewGuid()),
+            NuevaCompra(organizadorId, compradorId, MedioPago.Transferencia, Guid.NewGuid()),
+        };
+        await _repository.CrearVariasAsync(compras);
+
+        var resultado = await _repository.ListarPorOrganizadorAsync(organizadorId, page: 1, pageSize: 2);
+
+        Assert.Equal(2, resultado.Items.Count);
+        Assert.Equal(3, resultado.Total);
+    }
+
+    // Corrección post-implementación de Block 3: ConfirmarPagoAsync/CancelarAsync
+    // (CompraOrganizadorService, Application) necesitan devolver un CompraResumenResponse completo
+    // sin depender de que la compra recién mutada caiga en la primera página de
+    // ListarPorOrganizadorAsync.
+
+    [Fact]
+    public async Task ObtenerMontoTotalAsync_ConDosCartones_SumaAmbosPrecios()
+    {
+        var compra = NuevaCompra(Guid.NewGuid(), Guid.NewGuid(), MedioPago.Efectivo, Guid.NewGuid(), Guid.NewGuid());
+        await _repository.CrearVariasAsync(new[] { compra });
+
+        var montoTotal = await _repository.ObtenerMontoTotalAsync(compra.Id);
+
+        Assert.Equal(200m, montoTotal);
+    }
+
+    [Fact]
+    public async Task ObtenerMontoTotalAsync_ConCompraSinCartones_DevuelveCero()
+    {
+        var montoTotal = await _repository.ObtenerMontoTotalAsync(Guid.NewGuid());
+
+        Assert.Equal(0m, montoTotal);
+    }
+
+    // Corrective loop de VERIFY (F-VER-03): ListarPorOrganizadorAsync tenía branch coverage <80% —
+    // faltaba ejercitar la rama ": 0m" del TryGetValue sobre montosPorCompra cuando una compra de la
+    // página no tiene ninguna fila en CompraCartones.
+
+    [Fact]
+    public async Task ListarPorOrganizadorAsync_ConUnaCompraSinCartones_DevuelveMontoCero()
+    {
+        // `Compra.Items` está ignorado por AppDbContext (el monto vive en CompraCartones, no en la
+        // entidad) — agregar la Compra directamente (sin pasar por CrearVariasAsync, que sí escribe
+        // CompraCartones) deja la compra persistida sin ninguna fila asociada, igual que el caso real
+        // "página con una compra ya cancelada/legacy sin ítems".
+        var organizadorId = Guid.NewGuid();
+        var compraSinCartones = NuevaCompra(organizadorId, Guid.NewGuid(), MedioPago.Efectivo, Guid.NewGuid());
+        _context.Compras.Add(compraSinCartones);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ListarPorOrganizadorAsync(organizadorId, page: 1, pageSize: 10);
+
+        var item = Assert.Single(resultado.Items);
+        Assert.Equal(compraSinCartones.Id, item.Compra.Id);
+        Assert.Equal(0m, item.MontoTotal);
+    }
 }

@@ -418,6 +418,22 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
             MedioPago.Efectivo,
             DateTime.UtcNow);
 
+    // Spec FEAT-009c, Block 3: mismo helper, pero ya transicionada a Cancelado — usada por los tests
+    // nuevos que validan que TieneComprasRegistradasAsync/ObtenerParaCarritoAsync excluyen
+    // CompraCartones cuya Compra está Cancelada.
+    private static Compra SembrarCompraCancelada(Guid organizadorId, Guid compradorId)
+    {
+        var compra = Compra.Crear(
+            organizadorId,
+            compradorId,
+            Guid.NewGuid(),
+            new[] { new ItemCompra(Guid.NewGuid(), 100m) },
+            MedioPago.Efectivo,
+            DateTime.UtcNow);
+        compra.Cancelar();
+        return compra;
+    }
+
     [Fact]
     public async Task ObtenerParaCarritoAsync_ConCartonDeBingoActivoConIdInexistenteYConBingoVencido_DevuelveDatosONullSegunCorresponda()
     {
@@ -450,5 +466,53 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
 
         Assert.Null(resultadoInexistente);
         Assert.Null(resultadoVencido);
+    }
+
+    // Spec FEAT-009c, Block 3 (FR-05): ambos métodos excluyen CompraCartones cuya Compra está
+    // Cancelada (JOIN a Compras, filtro Estado != Cancelado) — un bingo cuya única compra fue
+    // cancelada vuelve a ser "sin compras", y su cartón vuelve a estar disponible para el carrito.
+    [Fact]
+    public async Task TieneComprasRegistradasAsync_ConLaUnicaCompraCancelada_DevuelveFalse()
+    {
+        var organizadorId = Guid.NewGuid();
+        var ahoraUtc = DateTime.UtcNow;
+        var bingo = NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc);
+        var carton = NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.Add(carton);
+        await _context.SaveChangesAsync();
+
+        var compra = SembrarCompraCancelada(organizadorId, Guid.NewGuid());
+        _context.Compras.Add(compra);
+        _context.CompraCartones.Add(new CompraCarton { CompraId = compra.Id, CartonId = carton.Id, PrecioUnitario = 100m });
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.TieneComprasRegistradasAsync(bingo.Id);
+
+        Assert.False(resultado);
+    }
+
+    [Fact]
+    public async Task ObtenerParaCarritoAsync_ConCartonDeCompraCancelada_LoDevuelveComoDisponible()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Cancelada Carrito");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc, costoPorCarton: 130m);
+        var carton = NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.Add(carton);
+        await _context.SaveChangesAsync();
+
+        var compra = SembrarCompraCancelada(organizador.Id, Guid.NewGuid());
+        _context.Compras.Add(compra);
+        _context.CompraCartones.Add(new CompraCarton { CompraId = compra.Id, CartonId = carton.Id, PrecioUnitario = 130m });
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ObtenerParaCarritoAsync(carton.Id, ahoraUtc);
+
+        Assert.NotNull(resultado);
+        Assert.Equal(carton.Id, resultado!.CartonId);
     }
 }

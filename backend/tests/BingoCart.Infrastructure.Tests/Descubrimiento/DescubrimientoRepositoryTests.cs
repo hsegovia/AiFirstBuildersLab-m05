@@ -397,4 +397,67 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         Assert.Equal(4, resultado.Count);
         Assert.DoesNotContain(resultado, c => c.Id == cartonVendido.Id);
     }
+
+    // Helper: mismo criterio que SembrarCartonVendidoAsync (arriba), pero la Compra sembrada queda
+    // Cancelada (spec FEAT-009c, Block 3, FR-05) — el cartón nunca debería quedar excluido por una
+    // compra que ya no es válida.
+    private async Task SembrarCartonDeCompraCanceladaAsync(Guid organizadorId, Guid cartonId)
+    {
+        var compra = Compra.Crear(
+            organizadorId,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new[] { new ItemCompra(Guid.NewGuid(), 100m) },
+            MedioPago.Efectivo,
+            DateTime.UtcNow);
+        compra.Cancelar();
+
+        _context.Compras.Add(compra);
+        _context.CompraCartones.Add(new CompraCarton { CompraId = compra.Id, CartonId = cartonId, PrecioUnitario = 100m });
+        await _context.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task ObtenerAleatoriosGlobalAsync_ConCartonDeCompraCancelada_LoIncluyeEntreLosDisponibles()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Cancelada Global");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc);
+        var cartones = NuevosCartones(bingo.Id, 5);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.AddRange(cartones);
+        await _context.SaveChangesAsync();
+
+        var cartonCancelado = cartones[0];
+        await SembrarCartonDeCompraCanceladaAsync(organizador.Id, cartonCancelado.Id);
+
+        var resultado = await _repository.ObtenerAleatoriosGlobalAsync(ahoraUtc, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
+
+        Assert.Equal(5, resultado.Count);
+        Assert.Contains(resultado, c => c.Id == cartonCancelado.Id);
+    }
+
+    [Fact]
+    public async Task ObtenerAleatoriosDeBingoAsync_ConCartonDeCompraCancelada_LoIncluyeEntreLosDisponibles()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Cancelada Por Bingo");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc);
+        var cartones = NuevosCartones(bingo.Id, 5);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.AddRange(cartones);
+        await _context.SaveChangesAsync();
+
+        var cartonCancelado = cartones[0];
+        await SembrarCartonDeCompraCanceladaAsync(organizador.Id, cartonCancelado.Id);
+
+        var resultado = await _repository.ObtenerAleatoriosDeBingoAsync(bingo.Id, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
+
+        Assert.Equal(5, resultado.Count);
+        Assert.Contains(resultado, c => c.Id == cartonCancelado.Id);
+    }
 }

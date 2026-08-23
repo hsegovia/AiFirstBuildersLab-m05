@@ -20,10 +20,12 @@ public sealed class ComprasController : ControllerBase
     private const string CookieCarritoName = "bingocart_carrito";
 
     private readonly ICompraService _compraService;
+    private readonly ICompraOrganizadorService _compraOrganizadorService;
 
-    public ComprasController(ICompraService compraService)
+    public ComprasController(ICompraService compraService, ICompraOrganizadorService compraOrganizadorService)
     {
         _compraService = compraService;
+        _compraOrganizadorService = compraOrganizadorService;
     }
 
     /// <summary>
@@ -64,5 +66,75 @@ public sealed class ComprasController : ControllerBase
         return Request.Cookies.TryGetValue(CookieCarritoName, out var existente) && existente is not null
             ? existente
             : string.Empty;
+    }
+
+    /// <summary>
+    /// Confirma el pago de una compra propia del organizador autenticado (spec FEAT-009c, Block 3,
+    /// FR-01). <c>[Authorize(Roles = "Organizador")]</c> — mitigación NFR-03: <c>organizadorId</c>
+    /// se deriva EXCLUSIVAMENTE del claim <see cref="ClaimTypes.NameIdentifier"/> del JWT, nunca del
+    /// <c>{id}</c> de ruta. Rate limiting (30 req/5min, política <c>"compras-organizador"</c> —
+    /// NUNCA la política <c>"compras"</c> de arriba, actor distinto: comprador vs. organizador).
+    /// </summary>
+    [HttpPatch("{id:guid}/confirmar-pago")]
+    [Authorize(Roles = "Organizador")]
+    [EnableRateLimiting("compras-organizador")]
+    [ProducesResponseType(typeof(CompraResumenResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<CompraResumenResponse>> ConfirmarPago(Guid id)
+    {
+        var organizadorId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+        var resumen = await _compraOrganizadorService.ConfirmarPagoAsync(id, organizadorId);
+
+        return Ok(resumen);
+    }
+
+    /// <summary>
+    /// Cancela una compra propia del organizador autenticado (spec FEAT-009c, Block 3, FR-03/FR-04)
+    /// — libera sus cartones (query-time, vía las 4 queries de disponibilidad que ahora excluyen
+    /// <c>Estado = Cancelado</c>) y encola el mail de cancelación best-effort (FR-06). Mismo criterio
+    /// de autorización/rate limiting que <see cref="ConfirmarPago"/>.
+    /// </summary>
+    [HttpPatch("{id:guid}/cancelar")]
+    [Authorize(Roles = "Organizador")]
+    [EnableRateLimiting("compras-organizador")]
+    [ProducesResponseType(typeof(CompraResumenResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<CompraResumenResponse>> Cancelar(Guid id)
+    {
+        var organizadorId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+        var resumen = await _compraOrganizadorService.CancelarAsync(id, organizadorId);
+
+        return Ok(resumen);
+    }
+
+    /// <summary>
+    /// Lista paginada de las compras propias del organizador autenticado (spec FEAT-009c, Block 3,
+    /// FR-07), sin datos del comprador. Sin rate limiting (mirror de
+    /// <see cref="BingosController.Listar"/>: mismo criterio, un GET sin costo análogo al de las
+    /// mutaciones de arriba).
+    /// </summary>
+    [HttpGet("mias")]
+    [Authorize(Roles = "Organizador")]
+    [ProducesResponseType(typeof(CompraListadoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<CompraListadoResponse>> ListarMias([FromQuery] ListarComprasQuery query)
+    {
+        var organizadorId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+        var response = await _compraOrganizadorService.ListarPropiasAsync(organizadorId, query.Page, query.PageSize);
+
+        return Ok(response);
     }
 }

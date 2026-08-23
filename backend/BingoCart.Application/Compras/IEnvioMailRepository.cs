@@ -31,6 +31,14 @@ public interface IEnvioMailRepository
     Task<DatosParaMailConfirmacion?> ObtenerDatosParaEnviarAsync(Guid confirmacionId);
 
     /// <summary>
+    /// Resuelve los datos del comprador y de la <c>Compra</c> <paramref name="compraId"/> para armar
+    /// el mail de cancelación (spec FEAT-009c, Block 2). Devuelve <c>null</c> si no hay ninguna —
+    /// mismo caso defensivo que <see cref="ObtenerDatosParaEnviarAsync"/>, el dato pudo desaparecer
+    /// entre encolar y procesar.
+    /// </summary>
+    Task<DatosParaMailCancelacion?> ObtenerDatosParaCancelacionAsync(Guid compraId);
+
+    /// <summary>
     /// Persiste el estado ya actualizado de <paramref name="envio"/> (éxito o intento fallido).
     /// </summary>
     Task ActualizarAsync(EnvioMail envio);

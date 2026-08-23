@@ -195,6 +195,14 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
             entity.Property(e => e.Estado)
                 .HasConversion<int>();
 
+            // TipoEnvio (spec FEAT-009c, Block 3): mismo criterio explícito que `Estado` arriba —
+            // discrimina Confirmacion (0, default de la migración: toda fila existente en `main`
+            // hoy es de ese tipo, ver comentario de la migración) de Cancelacion (1).
+            // ConfirmacionId/CompraId (Guid?) nullable se infieren por convención de EF Core, sin
+            // configuración explícita.
+            entity.Property(e => e.TipoEnvio)
+                .HasConversion<int>();
+
             // Soporta el filtro de `ObtenerPendientesAsync` (spec FEAT-009b, Block 3, FR-08):
             // `WHERE Estado = Pendiente AND (ProximoIntentoUtc IS NULL OR ProximoIntentoUtc <=
             // @ahoraUtc)`. Sin este índice, el `BackgroundService` (cada 1 minuto, NFR-01) forzaría

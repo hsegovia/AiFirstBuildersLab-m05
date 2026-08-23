@@ -8,6 +8,29 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-009c**: Confirmación y cancelación manual de pago — `PATCH /api/compras/{id}/confirmar-pago`
+  y `PATCH /api/compras/{id}/cancelar` (autenticados, `[Authorize(Roles = "Organizador")]`) le
+  permiten al organizador conciliar manualmente el pago de sus propias compras, y
+  `GET /api/compras/mias` (paginado) le da el listado mínimo para que esas acciones sean accionables
+  de punta a punta — `compraId`, estado, monto total y fecha, **sin datos del comprador** (eso es el
+  dashboard completo, RF-22/23/24, ticket futuro). `organizadorId` se deriva exclusivamente del claim
+  JWT; una compra ajena devuelve el mismo 404 que una inexistente, sin distinguir los casos. Ambas
+  transiciones solo salen de `PendienteConfirmacionPago`: confirmar o cancelar dos veces se rechaza
+  con 409, nunca es un no-op silencioso. **Cancelar nunca borra filas de `CompraCartones`** (se
+  preserva el audit trail): la disponibilidad de un cartón se deriva en query-time excluyendo las
+  compras en estado `Cancelado`, lo que obligó a modificar las 4 queries de disponibilidad del
+  proyecto (`BingoRepository.TieneComprasRegistradasAsync`/`ObtenerParaCarritoAsync` y las 2
+  consultas de descubrimiento en `DescubrimientoRepository`) — con el efecto deseado de que un bingo
+  cuya única compra fue cancelada vuelve a ser editable y eliminable (FEAT-007). El mail de
+  cancelación reutiliza el outbox de FEAT-009b en vez de construir un mecanismo nuevo: `EnviosMail`
+  se extiende con un discriminador `TipoEnvio` (`Confirmacion`/`Cancelacion`) y un `CompraId`
+  nullable junto al `ConfirmacionId` ahora nullable, con dos factories de dominio que garantizan que
+  exactamente uno de los dos esté seteado (invariante en Domain, nunca un CHECK en la base). El mail
+  de cancelación no lleva PDFs adjuntos (los cartones se están liberando, no confirmando) y aplica
+  `HtmlEncode` a los datos interpolados. Encolarlo es best-effort: una falla al encolar nunca revierte
+  la cancelación ya persistida. Rate limiting nuevo (`"compras-organizador"`, 30 req/5 min por
+  organizador — política propia, no reutiliza la de comprador). Backend-only.
+
 - **FEAT-009b**: Mail de confirmación de compra con PDF adjunto y reintentos — cada confirmación de
   carrito (FEAT-009a) encola un único mail (agrupando todas las `Compra` que produjo, aunque sean de
   organizadores distintos, vía un `ConfirmacionId` compartido) con el detalle completo de cada compra

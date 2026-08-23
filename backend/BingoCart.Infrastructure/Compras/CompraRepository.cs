@@ -58,4 +58,55 @@ public sealed class CompraRepository : ICompraRepository
                 "La confirmación perdió la carrera contra otra compra concurrente.");
         }
     }
+
+    // Trackeada (sin AsNoTracking, spec FEAT-009c Block 3): mismo patrón que
+    // BingoRepository.ObtenerPorIdAsync — la mutación posterior vía Compra.ConfirmarPago/Cancelar
+    // (Domain) queda detectada por EF Core sin un Update() explícito, y GuardarCambiosAsync (abajo)
+    // la persiste.
+    public Task<Compra?> ObtenerPorIdAsync(Guid id) =>
+        _context.Compras.FirstOrDefaultAsync(c => c.Id == id);
+
+    public Task GuardarCambiosAsync() => _context.SaveChangesAsync();
+
+    /// <summary>
+    /// Mirror de la paginación de <c>BingoRepository.ListarPorOrganizadorAsync</c> (mismo orden
+    /// descendente por <c>FechaCreacionUtc</c>, <c>Skip</c>/<c>Take</c>, <c>CountAsync</c> para el
+    /// total sin paginar). El monto de cada compra NO vive en <see cref="Compra"/>
+    /// (<c>AppDbContext</c> mapea <c>entity.Ignore(c =&gt; c.Items)</c>) — se calcula acá con un
+    /// <c>GroupBy(CompraId)</c> + <c>Sum(PrecioUnitario)</c> sobre <c>CompraCartones</c>, restringido
+    /// a las compras de la página actual (nunca sobre toda la tabla), y se compone en memoria con las
+    /// <see cref="Compra"/> ya paginadas — mismo estilo "múltiples queries compuestas en
+    /// Infrastructure" ya usado en <c>EnvioMailRepository.ObtenerDatosParaEnviarAsync</c>.
+    /// </summary>
+    public async Task<ComprasPaginadas> ListarPorOrganizadorAsync(Guid organizadorId, int page, int pageSize)
+    {
+        var query = _context.Compras.Where(c => c.OrganizadorId == organizadorId);
+
+        var total = await query.CountAsync();
+        var compras = await query
+            .OrderByDescending(c => c.FechaCreacionUtc)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var compraIds = compras.Select(c => c.Id).ToList();
+        var montosPorCompra = await _context.CompraCartones
+            .Where(cc => compraIds.Contains(cc.CompraId))
+            .GroupBy(cc => cc.CompraId)
+            .Select(g => new { CompraId = g.Key, MontoTotal = g.Sum(cc => cc.PrecioUnitario) })
+            .ToDictionaryAsync(x => x.CompraId, x => x.MontoTotal);
+
+        var items = compras
+            .Select(compra => new CompraConMonto(
+                compra,
+                montosPorCompra.TryGetValue(compra.Id, out var monto) ? monto : 0m))
+            .ToList();
+
+        return new ComprasPaginadas(items, total);
+    }
+
+    public async Task<decimal> ObtenerMontoTotalAsync(Guid compraId) =>
+        await _context.CompraCartones
+            .Where(cc => cc.CompraId == compraId)
+            .SumAsync(cc => (decimal?)cc.PrecioUnitario) ?? 0m;
 }

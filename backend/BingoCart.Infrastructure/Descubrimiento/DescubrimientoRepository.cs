@@ -1,6 +1,7 @@
 using BingoCart.Application.Descubrimiento;
 using BingoCart.Application.Descubrimiento.Dtos;
 using BingoCart.Domain.Bingos;
+using BingoCart.Domain.Compras;
 using BingoCart.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -45,24 +46,28 @@ public sealed class DescubrimientoRepository : IDescubrimientoRepository
 
         // Concatenación (no interpolación de C#) a propósito: `FromSqlRaw` con un string
         // interpolado dispara el analizador EF1002 (no distingue un hueco seguro de uno inseguro).
-        // `{0}`/`{1}` siguen siendo los placeholders propios de `FromSqlRaw`, parametrizados por EF
-        // Core — `clausulaExclusion` es texto ya validado (solo GUIDs), no una interpolación.
+        // `{0}`/`{1}`/`{2}` siguen siendo los placeholders propios de `FromSqlRaw`, parametrizados
+        // por EF Core — `clausulaExclusion` es texto ya validado (solo GUIDs), no una interpolación.
         // Subquery NOT EXISTS nueva (spec FEAT-009a, Block 1, FR-07): texto SQL COMPLETAMENTE FIJO,
         // sin ningún valor interpolado ni concatenado — a diferencia de `clausulaExclusion` (arriba),
         // que sí concatena GUIDs de `excluirCartonIds`. Un cartón con una fila en `CompraCartones`
-        // nunca vuelve a aparecer en descubrimiento global (threat model FEAT-009a, R-05: evaluado
-        // como más seguro que la cláusula NOT IN existente, no hay ninguna superficie de inyección
-        // que auditar porque no hay ningún dato variable en este string).
+        // cuya Compra sigue vigente (Estado <> Cancelado, spec FEAT-009c Block 3, FR-05) nunca
+        // vuelve a aparecer en descubrimiento global (threat model FEAT-009a, R-05: evaluado como
+        // más seguro que la cláusula NOT IN existente, no hay ninguna superficie de inyección que
+        // auditar porque no hay ningún dato variable en este string). `{2}` — el código del estado
+        // Cancelado — SIEMPRE viaja como placeholder posicional de FromSqlRaw ligado a
+        // (int)EstadoCompra.Cancelado, nunca concatenado/interpolado en el string.
         var sql = "SELECT TOP ({0}) c.* " +
                    "FROM Cartones c " +
                    "INNER JOIN Bingos b ON b.Id = c.BingoId " +
                    "WHERE b.FechaSorteoUtc > {1} " +
-                   "AND NOT EXISTS (SELECT 1 FROM CompraCartones cc WHERE cc.CartonId = c.Id) " +
+                   "AND NOT EXISTS (SELECT 1 FROM CompraCartones cc INNER JOIN Compras co ON co.Id = cc.CompraId " +
+                   "WHERE cc.CartonId = c.Id AND co.Estado <> {2}) " +
                    clausulaExclusion + " " +
                    "ORDER BY NEWID()";
 
         return await _context.Cartones
-            .FromSqlRaw(sql, cantidad, ahoraUtc)
+            .FromSqlRaw(sql, cantidad, ahoraUtc, (int)EstadoCompra.Cancelado)
             .AsNoTracking()
             .ToListAsync();
     }
@@ -86,16 +91,18 @@ public sealed class DescubrimientoRepository : IDescubrimientoRepository
         var clausulaExclusion = ConstruirClausulaExclusion(excluirCartonIds);
 
         // Misma subquery NOT EXISTS fija que ObtenerAleatoriosGlobalAsync (arriba) — ver ese
-        // comentario para el detalle de por qué no es una superficie de inyección.
+        // comentario para el detalle de por qué no es una superficie de inyección. `{2}` — el
+        // código del estado Cancelado — parametrizado, nunca concatenado.
         var sql = "SELECT TOP ({0}) c.* " +
                    "FROM Cartones c " +
                    "WHERE c.BingoId = {1} " +
-                   "AND NOT EXISTS (SELECT 1 FROM CompraCartones cc WHERE cc.CartonId = c.Id) " +
+                   "AND NOT EXISTS (SELECT 1 FROM CompraCartones cc INNER JOIN Compras co ON co.Id = cc.CompraId " +
+                   "WHERE cc.CartonId = c.Id AND co.Estado <> {2}) " +
                    clausulaExclusion + " " +
                    "ORDER BY NEWID()";
 
         return await _context.Cartones
-            .FromSqlRaw(sql, cantidad, bingoId)
+            .FromSqlRaw(sql, cantidad, bingoId, (int)EstadoCompra.Cancelado)
             .AsNoTracking()
             .ToListAsync();
     }

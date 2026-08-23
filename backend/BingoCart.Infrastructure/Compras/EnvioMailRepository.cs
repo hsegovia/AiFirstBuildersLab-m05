@@ -101,6 +101,39 @@ public sealed class EnvioMailRepository : IEnvioMailRepository
             comprasParaMail);
     }
 
+    /// <summary>
+    /// Resuelve, en 2 consultas separadas (mismo criterio que <see cref="ObtenerDatosParaEnviarAsync"/>):
+    /// la <c>Compra</c> con <paramref name="compraId"/> (<c>AsNoTracking</c>, <c>null</c> si no
+    /// existe), el comprador (vía <c>AppDbContext.Users</c>, mismo join) y el nombre de organización
+    /// (vía <c>AppDbContext.Users</c> sobre <c>Compra.OrganizadorId</c>) — spec FEAT-009c, Block 3.
+    /// </summary>
+    public async Task<DatosParaMailCancelacion?> ObtenerDatosParaCancelacionAsync(Guid compraId)
+    {
+        var compra = await _context.Compras.AsNoTracking().FirstOrDefaultAsync(c => c.Id == compraId);
+        if (compra is null)
+        {
+            // Caso defensivo esperado (ver IEnvioMailRepository): sin Compra con ese Id — null, no
+            // una excepción.
+            return null;
+        }
+
+        var comprador = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == compra.CompradorId);
+        if (comprador is null)
+        {
+            return null;
+        }
+
+        var organizador = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == compra.OrganizadorId);
+        var nombreOrganizacion = organizador?.NombreOrganizacion ?? string.Empty;
+
+        return new DatosParaMailCancelacion(
+            comprador.Email ?? string.Empty,
+            comprador.Nombre ?? string.Empty,
+            comprador.Apellido ?? string.Empty,
+            compra.Id,
+            nombreOrganizacion);
+    }
+
     public async Task ActualizarAsync(EnvioMail envio)
     {
         _context.EnviosMail.Update(envio);
