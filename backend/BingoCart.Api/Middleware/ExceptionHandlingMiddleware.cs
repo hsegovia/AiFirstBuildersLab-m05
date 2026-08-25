@@ -4,6 +4,7 @@ using BingoCart.Domain.Auth.Exceptions;
 using BingoCart.Domain.Bingos.Exceptions;
 using BingoCart.Domain.Carritos.Exceptions;
 using BingoCart.Domain.Common;
+using BingoCart.Domain.Compradores.Exceptions;
 using BingoCart.Domain.Compras.Exceptions;
 using BingoCart.Domain.Organizadores.Exceptions;
 // Ambos bounded contexts (Organizadores/Compradores) tienen sus propias excepciones con el MISMO
@@ -165,6 +166,28 @@ public sealed class ExceptionHandlingMiddleware
         catch (CartonNoEncontradoException ex)
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.NotFound, "CartonNoEncontrado");
+        }
+        // Actualización de datos de cuenta de comprador (spec FEAT-009d, Block 6). 409 y no 403 para
+        // PlazoModificacionVencidoException: el rechazo es de estado (conflicto con las compras
+        // vigentes), no de autorización. 403 y no 401 para ContrasenaIncorrectaException: la sesión
+        // sigue siendo válida, lo que falta es la prueba de identidad que esta operación puntual
+        // exige — un 401 llevaría a un cliente razonable a cerrar sesión, justo lo contrario de lo
+        // que pasó.
+        catch (PlazoModificacionVencidoException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "PlazoModificacionVencido");
+        }
+        catch (ContrasenaIncorrectaException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Forbidden, "ContrasenaIncorrecta");
+        }
+        catch (MailEnUsoException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "MailEnUso");
+        }
+        catch (CuitEnUsoException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.Conflict, "CuitEnUso");
         }
         catch (Exception ex)
         {
