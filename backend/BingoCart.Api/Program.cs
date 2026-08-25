@@ -357,6 +357,21 @@ builder.Services.AddRateLimiter(options =>
             PermitLimit = 30,
             Window = TimeSpan.FromMinutes(5)
         }));
+
+    // Rate limiting sobre GET /api/auth/whoami (spec FEAT-010a, Block 1, threat model riesgo R-02,
+    // MEDIUM: era el único endpoint autenticado del proyecto sin ninguna política). Particionado
+    // por el claim NameIdentifier del JWT, mismo mecanismo que "compras"/"compras-organizador"/
+    // "comprador-cuenta" — pero política PROPIA, más generosa (60 req/1 min vs. 30 req/5 min de
+    // "comprador-cuenta") porque whoami se llama en cada arranque de la app y después de cada
+    // login, en los 5 sub-tickets de FEAT-010, a diferencia de una acción puntual de checkout o de
+    // cuenta.
+    options.AddPolicy("auth-whoami", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 60,
+            Window = TimeSpan.FromMinutes(1)
+        }));
 });
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
