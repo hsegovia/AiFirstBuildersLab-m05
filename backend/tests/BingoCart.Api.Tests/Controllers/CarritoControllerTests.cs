@@ -463,14 +463,68 @@ public sealed class CarritoControllerTests : IAsyncLifetime
         RegistrarLimpiezaRedis(primeraRespuesta!);
     }
 
+    // Spec FEAT-009d, Block 2 (FR-12): cada ítem del carrito expone el correlativo del cartón que
+    // representa — el suyo, no el del primero de la lista.
+    [Fact]
+    public async Task Ver_ConDosCartonesAgregados_CadaItemIncluyeSuNumeroCorrelativo()
+    {
+        var (_, _, _, _, _, cartonIds) = await SembrarOrganizadorConBingoYCartonesAsync("Club Correlativo Carrito", 3);
+        using var client = NuevoClienteConCookieHttps();
+
+        var primerAgregado = await client.PostAsync($"/api/carrito/cartones/{cartonIds[0]}", content: null);
+        primerAgregado.EnsureSuccessStatusCode();
+        (await client.PostAsync($"/api/carrito/cartones/{cartonIds[2]}", content: null)).EnsureSuccessStatusCode();
+
+        var response = await client.GetAsync("/api/carrito");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var carrito = await response.Content.ReadFromJsonAsync<CarritoResponseDto>(DeserializeOptions);
+        Assert.NotNull(carrito);
+        Assert.Equal(2, carrito!.Items.Count);
+        Assert.Equal(1, Assert.Single(carrito.Items, i => i.CartonId == cartonIds[0]).NumeroCorrelativo);
+        Assert.Equal(3, Assert.Single(carrito.Items, i => i.CartonId == cartonIds[2]).NumeroCorrelativo);
+        RegistrarLimpiezaRedis(primerAgregado, cartonIds[0], cartonIds[2]);
+    }
+
+    // Spec FEAT-009d, Block 2 — AC-13 (sad path), D-06: el correlativo es de PRESENTACIÓN y nunca
+    // direcciona un cartón. La ruta declara el identificador con constraint `:guid`, así que un
+    // correlativo ("1") no matchea ninguna ruta y ASP.NET Core responde 404 sin llegar al
+    // controller. El contraste con el mismo cartón pedido por su GUID —que sí se agrega y se ve con
+    // correlativo 1— es lo que hace que el 404 signifique "no direccionable" y no "no existe".
+    [Fact]
+    public async Task Agregar_ConElNumeroCorrelativoEnLugarDelGuidDelCarton_Devuelve404SinDevolverNingunCarton()
+    {
+        var (_, _, _, _, _, cartonIds) = await SembrarOrganizadorConBingoYCartonesAsync("Club Correlativo No Direccionable", 3);
+        using var client = NuevoClienteConCookieHttps();
+
+        var porCorrelativo = await client.PostAsync("/api/carrito/cartones/1", content: null);
+        var carritoTrasCorrelativo = await client.GetAsync("/api/carrito");
+
+        var porGuid = await client.PostAsync($"/api/carrito/cartones/{cartonIds[0]}", content: null);
+        var carritoTrasGuid = await client.GetAsync("/api/carrito");
+
+        Assert.Equal(HttpStatusCode.NotFound, porCorrelativo.StatusCode);
+        var vacio = await carritoTrasCorrelativo.Content.ReadFromJsonAsync<CarritoResponseDto>(DeserializeOptions);
+        Assert.NotNull(vacio);
+        Assert.Empty(vacio!.Items);
+
+        Assert.Equal(HttpStatusCode.NoContent, porGuid.StatusCode);
+        var conCarton = await carritoTrasGuid.Content.ReadFromJsonAsync<CarritoResponseDto>(DeserializeOptions);
+        Assert.NotNull(conCarton);
+        Assert.Equal(1, Assert.Single(conCarton!.Items).NumeroCorrelativo);
+        RegistrarLimpiezaRedis(carritoTrasCorrelativo, cartonIds[0]);
+    }
+
     private sealed record ErrorResponseDto(string Error, string Message);
 
-    private sealed record ItemCarritoResponseDto(Guid CartonId, string NombreOrganizacion, string NombreEvento, decimal PrecioUnitario);
+    private sealed record ItemCarritoResponseDto(
+        Guid CartonId, int NumeroCorrelativo, string NombreOrganizacion, string NombreEvento, decimal PrecioUnitario);
 
     private sealed record CarritoResponseDto(List<ItemCarritoResponseDto> Items, int CantidadTotal, decimal MontoTotal);
 
     private sealed record CartonDescubiertoResponseDto(
         Guid Id,
+        int NumeroCorrelativo,
         string NombreOrganizacion,
         string NombreEvento,
         DateTime FechaSorteoUtc,

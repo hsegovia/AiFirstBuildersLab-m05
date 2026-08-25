@@ -127,7 +127,7 @@ public sealed class EnvioMailService : IEnvioMailService
         {
             foreach (var carton in compra.Cartones)
             {
-                var pdf = _cartonPdfRenderer.Renderizar(carton.CartonId, carton.Numeros);
+                var pdf = _cartonPdfRenderer.Renderizar(carton.CartonId, carton.NumeroCorrelativo, carton.Numeros);
                 adjuntos.Add(new AdjuntoMail($"{carton.CartonId}.pdf", pdf));
             }
         }
@@ -141,7 +141,12 @@ public sealed class EnvioMailService : IEnvioMailService
 
     /// <summary>
     /// Arma el detalle en HTML de todas las compras de la confirmación (AC-02): nombre de
-    /// organización, ID de compra, monto total y números de cada cartón, por cada compra. Los
+    /// organización, ID de compra, monto total y números de cada cartón, por cada compra. Cada
+    /// cartón se identifica por su número correlativo dentro del bingo, no por su GUID (FEAT-009d,
+    /// Block 2 — FR-12/AC-14): el mail era la última superficie del recorrido donde el comprador
+    /// veía un identificador que no le dice nada, en vez del número que ya vio en el descubrimiento,
+    /// en el carrito y en la confirmación. El GUID sigue estando en el PDF adjunto, que es donde
+    /// hace falta (RF-06). Los
     /// campos que provienen de datos ingresados por el usuario (nombre del comprador, nombre de
     /// organización) se escapan con <see cref="WebUtility.HtmlEncode"/> — nunca se interpolan
     /// crudos en el HTML, mismo criterio de "nunca concatenación manual insegura" que Infrastructure
@@ -162,7 +167,7 @@ public sealed class EnvioMailService : IEnvioMailService
             sb.Append("<ul>");
             foreach (var carton in compra.Cartones)
             {
-                sb.Append("<li>Cartón ").Append(carton.CartonId)
+                sb.Append("<li>Cartón N° ").Append(carton.NumeroCorrelativo)
                     .Append(": ").Append(string.Join(", ", carton.Numeros))
                     .Append("</li>");
             }

@@ -557,4 +557,48 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         Assert.NotNull(resultado);
         Assert.Equal(carton.Id, resultado!.CartonId);
     }
+
+    // Spec FEAT-009d, Block 2 (FR-12)
+    [Fact]
+    public async Task ObtenerParaCarritoAsync_IncluyeElNumeroCorrelativoDelCarton()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Correlativo Carrito");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc, costoPorCarton: 130m);
+        var carton = NuevoCarton(bingo.Id, numeroCorrelativo: 7, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.Add(carton);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ObtenerParaCarritoAsync(carton.Id, ahoraUtc);
+
+        Assert.NotNull(resultado);
+        Assert.Equal(carton.Id, resultado!.CartonId);
+        Assert.Equal(7, resultado.NumeroCorrelativo);
+    }
+
+    // Spec FEAT-009d, Block 2 (FR-12): CartonParaConfirmarCompra lleva el correlativo hasta la
+    // confirmación de compra, de donde lo toma el mail (EnvioMailRepository) y el PDF.
+    [Fact]
+    public async Task ObtenerParaConfirmarCompraAsync_IncluyeElNumeroCorrelativoDeCadaCarton()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Correlativo Confirmar");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc);
+        var cartonUno = NuevoCarton(bingo.Id, numeroCorrelativo: 3, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var cartonDos = NuevoCarton(bingo.Id, numeroCorrelativo: 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.AddRange(cartonUno, cartonDos);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ObtenerParaConfirmarCompraAsync(new[] { cartonUno.Id, cartonDos.Id });
+
+        Assert.Equal(2, resultado.Count);
+        Assert.Equal(3, Assert.Single(resultado, r => r.CartonId == cartonUno.Id).NumeroCorrelativo);
+        Assert.Equal(9, Assert.Single(resultado, r => r.CartonId == cartonDos.Id).NumeroCorrelativo);
+    }
 }

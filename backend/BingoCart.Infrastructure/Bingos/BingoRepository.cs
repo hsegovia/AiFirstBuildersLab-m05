@@ -86,7 +86,7 @@ public sealed class BingoRepository : IBingoRepository
                     && _context.Compras.Any(compra => compra.Id == cc.CompraId && compra.Estado != EstadoCompra.Cancelado)))
             // `!` seguro: `u` siempre proviene de `Bingo.OrganizadorId`, un organizador, que
             // siempre completa `NombreOrganizacion` (mismo criterio que ObtenerParaConfirmarCompraAsync).
-            .Select(x => new CartonParaCarrito(x.c.Id, x.b.Id, x.b.CostoPorCarton, x.u.NombreOrganizacion!, x.b.NombreEvento))
+            .Select(x => new CartonParaCarrito(x.c.Id, x.c.NumeroCorrelativo, x.b.Id, x.b.CostoPorCarton, x.u.NombreOrganizacion!, x.b.NombreEvento))
             .FirstOrDefaultAsync();
     }
 
@@ -105,7 +105,7 @@ public sealed class BingoRepository : IBingoRepository
             // `u` siempre proviene de `Bingo.OrganizadorId` — un organizador, que sí lo completa
             // siempre (`OrganizadorService.RegistrarAsync`, invariante nunca relajada por este
             // ticket) — el `!` es seguro, no oculta un caso real de nulidad.
-            .Select(x => new CartonParaConfirmarCompra(x.c.Id, x.b.Id, x.b.OrganizadorId, x.u.NombreOrganizacion!, x.b.NombreEvento))
+            .Select(x => new CartonParaConfirmarCompra(x.c.Id, x.c.NumeroCorrelativo, x.b.Id, x.b.OrganizadorId, x.u.NombreOrganizacion!, x.b.NombreEvento))
             .ToListAsync();
     }
 }

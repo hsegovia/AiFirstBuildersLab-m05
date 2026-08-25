@@ -8,8 +8,9 @@ public interface ICartonPdfRenderer
 {
     /// <summary>
     /// Genera el PDF de una página de <paramref name="cartonId"/>, mostrando sus 10
-    /// <paramref name="numeros"/> y su GUID — impreso porque es la razón de ser de RF-06
+    /// <paramref name="numeros"/>, su <paramref name="numeroCorrelativo"/> dentro del bingo
+    /// (FEAT-009d, FR-12/AC-04) y su GUID — este último impreso porque es la razón de ser de RF-06
     /// (postpuesta), sin la cual el PDF no serviría para esa validación futura.
     /// </summary>
-    byte[] Renderizar(Guid cartonId, IReadOnlyList<int> numeros);
+    byte[] Renderizar(Guid cartonId, int numeroCorrelativo, IReadOnlyList<int> numeros);
 }

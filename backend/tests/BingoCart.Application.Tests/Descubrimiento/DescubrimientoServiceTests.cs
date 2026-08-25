@@ -147,4 +147,29 @@ public class DescubrimientoServiceTests
         Assert.Equal(resumen.FechaSorteoUtc, respuesta.FechaSorteoUtc);
         Assert.Equal(carton.Numeros, respuesta.Numeros);
     }
+
+    // Spec FEAT-009d, Block 2 (FR-12)
+    [Fact]
+    public async Task DescubrirGlobalAsync_IncluyeElNumeroCorrelativoDeCadaCarton()
+    {
+        var bingoId = Guid.NewGuid();
+        var cartonUno = NuevoCarton(bingoId, inicio: 1, numeroCorrelativo: 17);
+        var cartonDos = NuevoCarton(bingoId, inicio: 11, numeroCorrelativo: 4);
+        var resumen = new BingoResumen(bingoId, "Club Uno", "Bingo Uno", 100m, DateTime.UtcNow.AddDays(5));
+
+        var repository = new Mock<IDescubrimientoRepository>();
+        repository
+            .Setup(r => r.ObtenerAleatoriosGlobalAsync(It.IsAny<DateTime>(), 5, It.IsAny<IReadOnlyCollection<Guid>>()))
+            .ReturnsAsync(new List<Carton> { cartonUno, cartonDos });
+        repository
+            .Setup(r => r.ObtenerResumenBingosAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
+            .ReturnsAsync(new List<BingoResumen> { resumen });
+
+        var service = CrearService(repository);
+
+        var response = await service.DescubrirGlobalAsync();
+
+        Assert.Equal(17, Assert.Single(response, r => r.Id == cartonUno.Id).NumeroCorrelativo);
+        Assert.Equal(4, Assert.Single(response, r => r.Id == cartonDos.Id).NumeroCorrelativo);
+    }
 }

@@ -288,8 +288,32 @@ public sealed class CartonesControllerTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.TooManyRequests, request61.StatusCode);
     }
 
+    // Spec FEAT-009d, Block 2 — AC-15: el descubrimiento público INCLUYE el correlativo de cada
+    // cartón y, en esa misma superficie, no lo acepta como criterio de búsqueda ni de selección: no
+    // existe tal parámetro en el contrato, así que el binding lo descarta y el endpoint sigue
+    // devolviendo hasta 5 cartones al azar del bingo. Con 8 sembrados y 5 devueltos, es imposible
+    // que todos tengan el correlativo pedido (solo uno lo tiene).
+    [Fact]
+    public async Task PorOrganizador_ConElCorrelativoComoCriterioDeBusqueda_LoIgnoraYDevuelveCadaCartonConSuCorrelativo()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var (organizadorId, _, _) = await SembrarOrganizadorConBingoYCartonesAsync(
+            "Club Correlativo Descubrimiento", ahoraUtc.AddDays(6), ahoraUtc, cantidadCartones: 8,
+            nombreEvento: "Bingo Correlativo Descubrimiento");
+
+        var response = await _client.GetAsync($"/api/cartones/organizador/{organizadorId}?numeroCorrelativo=1&correlativo=1");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<List<CartonDescubiertoResponseDto>>(DeserializeOptions);
+        Assert.NotNull(content);
+        Assert.Equal(5, content!.Count);
+        Assert.All(content, c => Assert.InRange(c.NumeroCorrelativo, 1, 8));
+        Assert.Contains(content, c => c.NumeroCorrelativo != 1);
+    }
+
     private sealed record CartonDescubiertoResponseDto(
         Guid Id,
+        int NumeroCorrelativo,
         string NombreOrganizacion,
         string NombreEvento,
         DateTime FechaSorteoUtc,

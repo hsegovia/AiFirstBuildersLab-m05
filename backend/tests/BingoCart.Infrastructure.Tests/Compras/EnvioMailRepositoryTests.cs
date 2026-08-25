@@ -293,4 +293,37 @@ public sealed class EnvioMailRepositoryTests : IAsyncLifetime
         Assert.Equal(string.Empty, datos.NombreComprador);
         Assert.Equal(string.Empty, datos.ApellidoComprador);
     }
+
+    // Spec FEAT-009d, Block 2 (FR-12): el cartón que viaja al mail de confirmación —y de ahí al PDF
+    // adjunto— lleva su número correlativo, no solo sus números y su GUID.
+    [Fact]
+    public async Task ObtenerDatosParaEnviarAsync_IncluyeElNumeroCorrelativoDeCadaCarton()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var confirmacionId = Guid.NewGuid();
+
+        var comprador = NuevoUsuario(Guid.NewGuid(), nombre: "Ana", apellido: "Gómez");
+        var organizador = NuevoUsuario(Guid.NewGuid(), nombreOrganizacion: "Club Correlativo Mail");
+        var bingo = Bingo.Crear("Bingo Correlativo", ahoraUtc.AddDays(5), 100, 50m, organizador.Id, ahoraUtc);
+        var carton = Carton.Crear(bingo.Id, new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }, numeroCorrelativo: 12);
+
+        var compra = Compra.Crear(
+            organizador.Id, comprador.Id, confirmacionId,
+            new[] { new ItemCompra(carton.Id, 50m) }, MedioPago.Efectivo, ahoraUtc);
+
+        _context.Users.AddRange(comprador, organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.Add(carton);
+        _context.Compras.Add(compra);
+        _context.CompraCartones.Add(
+            new CompraCarton { CompraId = compra.Id, CartonId = carton.Id, PrecioUnitario = 50m });
+        await _context.SaveChangesAsync();
+
+        var datos = await _repository.ObtenerDatosParaEnviarAsync(confirmacionId);
+
+        Assert.NotNull(datos);
+        var cartonDelMail = Assert.Single(Assert.Single(datos!.Compras).Cartones);
+        Assert.Equal(carton.Id, cartonDelMail.CartonId);
+        Assert.Equal(12, cartonDelMail.NumeroCorrelativo);
+    }
 }

@@ -115,9 +115,9 @@ public class CompraServiceTests
             .Setup(r => r.ObtenerParaConfirmarCompraAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
             .ReturnsAsync(new List<CartonParaConfirmarCompra>
             {
-                new(cartonUno, Guid.NewGuid(), organizadorUno, "Club Uno", "Bingo Uno"),
-                new(cartonDos, Guid.NewGuid(), organizadorUno, "Club Uno", "Bingo Uno"),
-                new(cartonTres, Guid.NewGuid(), organizadorDos, "Club Dos", "Bingo Dos"),
+                new(cartonUno, NumeroCorrelativo: 1, Guid.NewGuid(), organizadorUno, "Club Uno", "Bingo Uno"),
+                new(cartonDos, NumeroCorrelativo: 1, Guid.NewGuid(), organizadorUno, "Club Uno", "Bingo Uno"),
+                new(cartonTres, NumeroCorrelativo: 1, Guid.NewGuid(), organizadorDos, "Club Dos", "Bingo Dos"),
             });
 
         List<Domain.Compras.Compra>? comprasRecibidas = null;
@@ -168,7 +168,7 @@ public class CompraServiceTests
             .Setup(r => r.ObtenerParaConfirmarCompraAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
             .ReturnsAsync(new List<CartonParaConfirmarCompra>
             {
-                new(cartonId, Guid.NewGuid(), organizadorId, "Club X", "Bingo X"),
+                new(cartonId, NumeroCorrelativo: 1, Guid.NewGuid(), organizadorId, "Club X", "Bingo X"),
             });
 
         compraRepository
@@ -216,7 +216,7 @@ public class CompraServiceTests
             .Setup(r => r.ObtenerParaConfirmarCompraAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
             .ReturnsAsync(new List<CartonParaConfirmarCompra>
             {
-                new(cartonId, Guid.NewGuid(), organizadorId, "Club X", "Bingo X"),
+                new(cartonId, NumeroCorrelativo: 1, Guid.NewGuid(), organizadorId, "Club X", "Bingo X"),
             });
         // Corrective round 2: la traducción DbUpdateException -> ReservaCarritoInvalidaException
         // ahora vive en Infrastructure (CompraRepository), no en CompraService — Application no
@@ -268,8 +268,8 @@ public class CompraServiceTests
             .Setup(r => r.ObtenerParaConfirmarCompraAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
             .ReturnsAsync(new List<CartonParaConfirmarCompra>
             {
-                new(cartonUno, Guid.NewGuid(), organizadorUno, "Club Uno", "Bingo Uno"),
-                new(cartonDos, Guid.NewGuid(), organizadorDos, "Club Dos", "Bingo Dos"),
+                new(cartonUno, NumeroCorrelativo: 1, Guid.NewGuid(), organizadorUno, "Club Uno", "Bingo Uno"),
+                new(cartonDos, NumeroCorrelativo: 1, Guid.NewGuid(), organizadorDos, "Club Dos", "Bingo Dos"),
             });
 
         List<Domain.Compras.Compra>? comprasRecibidas = null;
@@ -315,7 +315,7 @@ public class CompraServiceTests
             .Setup(r => r.ObtenerParaConfirmarCompraAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
             .ReturnsAsync(new List<CartonParaConfirmarCompra>
             {
-                new(cartonId, Guid.NewGuid(), organizadorId, "Club X", "Bingo X"),
+                new(cartonId, NumeroCorrelativo: 1, Guid.NewGuid(), organizadorId, "Club X", "Bingo X"),
             });
         carritoRepository
             .Setup(r => r.LiberarCarritoConfirmadoAsync(sesionId, It.IsAny<IReadOnlyCollection<Guid>>()))
@@ -365,7 +365,7 @@ public class CompraServiceTests
             .Setup(r => r.ObtenerParaConfirmarCompraAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
             .ReturnsAsync(new List<CartonParaConfirmarCompra>
             {
-                new(cartonId, Guid.NewGuid(), organizadorId, "Club X", "Bingo X"),
+                new(cartonId, NumeroCorrelativo: 1, Guid.NewGuid(), organizadorId, "Club X", "Bingo X"),
             });
         carritoRepository
             .Setup(r => r.LiberarCarritoConfirmadoAsync(sesionId, It.IsAny<IReadOnlyCollection<Guid>>()))
@@ -384,5 +384,58 @@ public class CompraServiceTests
         carritoRepository.Verify(
             r => r.LiberarCarritoConfirmadoAsync(sesionId, It.IsAny<IReadOnlyCollection<Guid>>()),
             Times.Once());
+    }
+
+    // Spec FEAT-009d, Block 2 (FR-12): cada CompraCreada de la respuesta lleva SUS cartones —los del
+    // organizador que agrupa, no los del carrito entero— con el correlativo que resolvió SQL Server.
+    [Fact]
+    public async Task ConfirmarCompraAsync_Con3CartonesDe2Organizadores_DevuelveLosCartonesDeCadaCompraConSuNumeroCorrelativo()
+    {
+        var sesionId = Guid.NewGuid().ToString();
+        var compradorId = Guid.NewGuid();
+        var organizadorUno = Guid.NewGuid();
+        var organizadorDos = Guid.NewGuid();
+
+        var cartonUno = Guid.NewGuid();
+        var cartonDos = Guid.NewGuid();
+        var cartonTres = Guid.NewGuid();
+
+        var items = new List<ItemCarrito>
+        {
+            new(cartonUno, 100m),
+            new(cartonDos, 200m),
+            new(cartonTres, 300m),
+        };
+
+        var carritoRepository = new Mock<ICarritoRepository>();
+        var bingoRepository = new Mock<IBingoRepository>();
+        var compraRepository = new Mock<ICompraRepository>();
+
+        carritoRepository.Setup(r => r.ObtenerItemsAsync(sesionId)).ReturnsAsync(items);
+        carritoRepository
+            .Setup(r => r.RevalidarReservasAsync(sesionId))
+            .ReturnsAsync(new RevalidacionCarrito(true, items, Array.Empty<Guid>()));
+        bingoRepository
+            .Setup(r => r.ObtenerParaConfirmarCompraAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
+            .ReturnsAsync(new List<CartonParaConfirmarCompra>
+            {
+                new(cartonUno, NumeroCorrelativo: 4, Guid.NewGuid(), organizadorUno, "Club Uno", "Bingo Uno"),
+                new(cartonDos, NumeroCorrelativo: 9, Guid.NewGuid(), organizadorUno, "Club Uno", "Bingo Uno"),
+                new(cartonTres, NumeroCorrelativo: 2, Guid.NewGuid(), organizadorDos, "Club Dos", "Bingo Dos"),
+            });
+
+        var service = CrearService(carritoRepository, bingoRepository, compraRepository);
+
+        var response = await service.ConfirmarCompraAsync(sesionId, compradorId, MedioPago.Transferencia);
+
+        var compraUno = Assert.Single(response.Compras, c => c.OrganizadorId == organizadorUno);
+        Assert.Equal(2, compraUno.Cartones.Count);
+        Assert.Equal(4, Assert.Single(compraUno.Cartones, c => c.CartonId == cartonUno).NumeroCorrelativo);
+        Assert.Equal(9, Assert.Single(compraUno.Cartones, c => c.CartonId == cartonDos).NumeroCorrelativo);
+
+        var compraDos = Assert.Single(response.Compras, c => c.OrganizadorId == organizadorDos);
+        var cartonDeOrganizadorDos = Assert.Single(compraDos.Cartones);
+        Assert.Equal(cartonTres, cartonDeOrganizadorDos.CartonId);
+        Assert.Equal(2, cartonDeOrganizadorDos.NumeroCorrelativo);
     }
 }

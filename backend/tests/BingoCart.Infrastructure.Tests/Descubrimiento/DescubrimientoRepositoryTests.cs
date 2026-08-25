@@ -458,4 +458,30 @@ public sealed class DescubrimientoRepositoryTests : IAsyncLifetime
         Assert.Equal(5, resultado.Count);
         Assert.Contains(resultado, c => c.Id == cartonCancelado.Id);
     }
+
+    // Spec FEAT-009d, Block 2 (FR-12): los dos FromSqlRaw de este repositorio proyectan `c.*`, así
+    // que la columna NumeroCorrelativo se materializa sin tocar el SQL. Guarda de regresión contra
+    // SQL Server real: si alguien reemplazara el `c.*` por una lista explícita de columnas, el
+    // correlativo llegaría en 0 a todas las superficies de descubrimiento.
+    [Fact]
+    public async Task ObtenerAleatoriosDeBingoAsync_MaterializaElNumeroCorrelativoDeCadaCarton()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Correlativo Descubrimiento");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc);
+        var cartones = NuevosCartones(bingo.Id, 3);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.AddRange(cartones);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ObtenerAleatoriosDeBingoAsync(
+            bingo.Id, cantidad: 5, excluirCartonIds: Array.Empty<Guid>());
+
+        var correlativosEsperados = cartones.ToDictionary(c => c.Id, c => c.NumeroCorrelativo);
+        Assert.Equal(3, resultado.Count);
+        Assert.All(resultado, c => Assert.Equal(correlativosEsperados[c.Id], c.NumeroCorrelativo));
+        Assert.Equal(new[] { 1, 2, 3 }, resultado.Select(c => c.NumeroCorrelativo).OrderBy(n => n).ToArray());
+    }
 }

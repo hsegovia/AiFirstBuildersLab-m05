@@ -8,6 +8,7 @@ namespace BingoCart.Application.Carritos.Dtos;
 /// </summary>
 public sealed record ItemCarritoResponse(
     Guid CartonId,
+    int NumeroCorrelativo,
     string NombreOrganizacion,
     string NombreEvento,
     decimal PrecioUnitario);

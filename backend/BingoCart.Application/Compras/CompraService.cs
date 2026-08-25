@@ -92,12 +92,22 @@ public sealed class CompraService : ICompraService
             compras.Add(compra);
 
             var nombreOrganizacion = datosPorCartonId[grupo.First().CartonId].NombreOrganizacion;
+
+            // FR-12: el correlativo de cada cartón sale del dato ya resuelto contra SQL Server unas
+            // líneas más arriba, nunca del orden del carrito ni del índice del grupo.
+            var cartonesDeLaCompra = itemsCompra
+                .Select(item => new CartonCompradoResponse(
+                    item.CartonId,
+                    datosPorCartonId[item.CartonId].NumeroCorrelativo))
+                .ToList();
+
             comprasCreadas.Add(new CompraCreada(
                 compra.Id,
                 compra.OrganizadorId,
                 nombreOrganizacion,
                 itemsCompra.Count,
-                itemsCompra.Sum(item => item.PrecioUnitario)));
+                itemsCompra.Sum(item => item.PrecioUnitario),
+                cartonesDeLaCompra));
         }
 
         // (5) COMMIT: "todo o nada" real en una única transacción EF Core (Infrastructure). Una
