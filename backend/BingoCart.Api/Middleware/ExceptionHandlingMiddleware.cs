@@ -157,6 +157,15 @@ public sealed class ExceptionHandlingMiddleware
         {
             await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.NotFound, "CompraNoEncontrada");
         }
+        // Descarga de PDF on-demand (spec FEAT-009d, Block 4): mismo status/shape que
+        // CompraNoEncontradaException, arriba. `CartonNoEncontradoException` (este bounded context,
+        // `Compras`) NO es el mismo tipo que `CartonInexistenteException` (Carritos, catch más
+        // arriba en este archivo) — nombres parecidos, tipos distintos, cada uno con su propio catch
+        // explícito, mismo patrón documentado en los alias de using del encabezado.
+        catch (CartonNoEncontradoException ex)
+        {
+            await ManejarExcepcionDeDominioAsync(context, ex, HttpStatusCode.NotFound, "CartonNoEncontrado");
+        }
         catch (Exception ex)
         {
             // No controlada: nunca se expone el mensaje real (puede contener detalles internos) ni

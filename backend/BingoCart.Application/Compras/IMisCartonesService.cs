@@ -16,4 +16,13 @@ public interface IMisCartonesService
     /// (NFR-01/AC-03) antes de delegar en <see cref="ICompraRepository.ListarCartonesDelCompradorAsync"/>.
     /// </summary>
     Task<MisCartonesResponse> ListarAsync(Guid compradorId, int page, int pageSize);
+
+    /// <summary>
+    /// Genera el PDF del cartón <paramref name="cartonId"/> del comprador autenticado (spec
+    /// FEAT-009d, Block 4, FR-04/AC-04). Reutiliza <see cref="ICartonPdfRenderer"/> tal cual (Block
+    /// 2) — el PDF se genera en memoria y no se persiste (mitigación R-03). Lanza
+    /// <c>CartonNoEncontradoException</c> (Domain) con el mismo mensaje tanto si el cartón no existe
+    /// como si pertenece a otro comprador (anti-enumeración, R-01).
+    /// </summary>
+    Task<byte[]> ObtenerPdfAsync(Guid compradorId, Guid cartonId);
 }

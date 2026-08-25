@@ -1,5 +1,6 @@
 using BingoCart.Application.Compras;
 using BingoCart.Application.Compras.Dtos;
+using BingoCart.Domain.Bingos;
 using BingoCart.Domain.Compras;
 using BingoCart.Domain.Compras.Exceptions;
 using BingoCart.Infrastructure.Data;
@@ -173,4 +174,23 @@ public sealed class CompraRepository : ICompraRepository
 
         return new CartonesAdquiridosPaginados(items, total);
     }
+
+    /// <summary>
+    /// Implementa <see cref="ICompraRepository.ObtenerCartonDelCompradorAsync"/> (spec FEAT-009d,
+    /// Block 4) con un único query LINQ: filtra <c>CompraCartones</c> por <paramref name="cartonId"/>,
+    /// lo une a <c>Compras</c> restringido a <paramref name="compradorId"/> (el join descarta la fila
+    /// si la compra es de otro comprador) y recién ahí busca el <c>Carton</c> — así una sola consulta
+    /// resuelve "pertenece" y "trae los datos", sin dos round-trips.
+    /// </summary>
+    public Task<Carton?> ObtenerCartonDelCompradorAsync(Guid compradorId, Guid cartonId) =>
+        _context.CompraCartones
+            .Where(cc => cc.CartonId == cartonId)
+            .Join(
+                _context.Compras.Where(c => c.CompradorId == compradorId),
+                cc => cc.CompraId,
+                c => c.Id,
+                (cc, c) => cc.CartonId)
+            .Join(_context.Cartones, id => id, carton => carton.Id, (id, carton) => carton)
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
 }

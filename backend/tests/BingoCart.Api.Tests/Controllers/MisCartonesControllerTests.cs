@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using BingoCart.Domain.Bingos;
 using BingoCart.Domain.Compras;
@@ -555,6 +556,141 @@ public sealed class MisCartonesControllerTests : IAsyncLifetime
         Assert.Equal(correlativoEnDescubrimiento, correlativoEnConfirmacion);
         Assert.Equal(correlativoEnDescubrimiento, correlativoEnMail);
         Assert.Equal(correlativoEnDescubrimiento, correlativoEnMisCartones);
+    }
+
+    // Spec FEAT-009d, Block 4 — GET /api/compradores/mis-cartones/{cartonId:guid}/pdf.
+
+    [Fact]
+    public async Task DescargarPdf_ConCartonPropio_Devuelve200ConContentTypePdf()
+    {
+        var (organizadorId, _, cartonIds) = await SembrarOrganizadorConBingoYCartonesAsync(
+            "Club PDF Propio", 1, costoPorCarton: 100m);
+        var (comprador, compradorId) = await NuevoCompradorAutenticadoConIdAsync();
+        await SembrarCompraConCartonAsync(
+            organizadorId, compradorId, cartonIds[0], 100m, EstadoCompra.Confirmado);
+
+        var respuesta = await comprador.GetAsync($"/api/compradores/mis-cartones/{cartonIds[0]}/pdf");
+
+        Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+        Assert.Equal("application/pdf", respuesta.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("attachment", respuesta.Content.Headers.ContentDisposition?.DispositionType);
+        var pdf = await respuesta.Content.ReadAsByteArrayAsync();
+        Assert.NotEmpty(pdf);
+        Assert.Equal("%PDF", Encoding.ASCII.GetString(pdf, 0, 4));
+    }
+
+    [Fact]
+    public async Task DescargarPdf_ConCartonAjeno_Devuelve404()
+    {
+        var (organizadorId, _, cartonIds) = await SembrarOrganizadorConBingoYCartonesAsync(
+            "Club PDF Ajeno", 1, costoPorCarton: 100m);
+        var (compradorA, _) = await NuevoCompradorAutenticadoConIdAsync();
+        var otroCompradorId = Guid.NewGuid();
+        await SembrarCompraConCartonAsync(
+            organizadorId, otroCompradorId, cartonIds[0], 100m, EstadoCompra.Confirmado);
+
+        var respuesta = await compradorA.GetAsync($"/api/compradores/mis-cartones/{cartonIds[0]}/pdf");
+
+        Assert.Equal(HttpStatusCode.NotFound, respuesta.StatusCode);
+        var error = await respuesta.Content.ReadFromJsonAsync<ErrorResponseDto>(DeserializeOptions);
+        Assert.NotNull(error);
+        Assert.Equal("CartonNoEncontrado", error!.Error);
+    }
+
+    // Anti-enumeración (R-01): el mismo comprador pide un cartón ajeno y uno que directamente no
+    // existe — las dos respuestas 404 tienen que ser byte a byte idénticas, para que no se pueda
+    // distinguir "existe pero no es mío" de "no existe en absoluto".
+    [Fact]
+    public async Task DescargarPdf_ConCartonInexistente_Devuelve404ConElMismoCuerpo()
+    {
+        var (organizadorId, _, cartonIds) = await SembrarOrganizadorConBingoYCartonesAsync(
+            "Club PDF Inexistente", 1, costoPorCarton: 100m);
+        var (compradorA, _) = await NuevoCompradorAutenticadoConIdAsync();
+        var otroCompradorId = Guid.NewGuid();
+        await SembrarCompraConCartonAsync(
+            organizadorId, otroCompradorId, cartonIds[0], 100m, EstadoCompra.Confirmado);
+
+        var respuestaAjeno = await compradorA.GetAsync($"/api/compradores/mis-cartones/{cartonIds[0]}/pdf");
+        var respuestaInexistente = await compradorA.GetAsync($"/api/compradores/mis-cartones/{Guid.NewGuid()}/pdf");
+
+        Assert.Equal(HttpStatusCode.NotFound, respuestaAjeno.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, respuestaInexistente.StatusCode);
+        var cuerpoAjeno = await respuestaAjeno.Content.ReadAsStringAsync();
+        var cuerpoInexistente = await respuestaInexistente.Content.ReadAsStringAsync();
+        Assert.Equal(cuerpoAjeno, cuerpoInexistente);
+    }
+
+    // A-02: el PDF es comprobante de lo que ocurrió, no título de propiedad vigente — se permite
+    // descargarlo aunque la compra que incluye el cartón haya sido cancelada.
+    [Fact]
+    public async Task DescargarPdf_ConCompraCancelada_PermiteLaDescarga()
+    {
+        var (organizadorId, _, cartonIds) = await SembrarOrganizadorConBingoYCartonesAsync(
+            "Club PDF Cancelada", 1, costoPorCarton: 100m);
+        var (comprador, compradorId) = await NuevoCompradorAutenticadoConIdAsync();
+        await SembrarCompraConCartonAsync(
+            organizadorId, compradorId, cartonIds[0], 100m, EstadoCompra.Cancelado);
+
+        var respuesta = await comprador.GetAsync($"/api/compradores/mis-cartones/{cartonIds[0]}/pdf");
+
+        Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+        Assert.Equal("application/pdf", respuesta.Content.Headers.ContentType?.MediaType);
+    }
+
+    // AC-13: un número correlativo (p. ej. "1") no es un GUID — el constraint de ruta ":guid" lo
+    // resuelve como 404 de routing antes de que la request llegue al controller.
+    [Fact]
+    public async Task DescargarPdf_ConNumeroCorrelativoEnLugarDelGuid_NoDevuelveCarton()
+    {
+        var (comprador, _) = await NuevoCompradorAutenticadoConIdAsync();
+
+        var respuesta = await comprador.GetAsync("/api/compradores/mis-cartones/1/pdf");
+
+        Assert.Equal(HttpStatusCode.NotFound, respuesta.StatusCode);
+    }
+
+    [Fact]
+    public async Task DescargarPdf_SinRolComprador_Devuelve403()
+    {
+        using var organizador = await NuevoOrganizadorAutenticadoAsync();
+
+        var respuesta = await organizador.GetAsync($"/api/compradores/mis-cartones/{Guid.NewGuid()}/pdf");
+
+        Assert.Equal(HttpStatusCode.Forbidden, respuesta.StatusCode);
+    }
+
+    [Fact]
+    public async Task DescargarPdf_SinAutenticar_Devuelve401()
+    {
+        using var client = NuevoClienteHttps();
+
+        var respuesta = await client.GetAsync($"/api/compradores/mis-cartones/{Guid.NewGuid()}/pdf");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, respuesta.StatusCode);
+    }
+
+    [Fact]
+    public async Task DescargarPdf_SuperandoElLimiteDeSolicitudes_Devuelve429()
+    {
+        var (organizadorId, _, cartonIds) = await SembrarOrganizadorConBingoYCartonesAsync(
+            "Club PDF Rate Limit", 1, costoPorCarton: 100m);
+        var (comprador, compradorId) = await NuevoCompradorAutenticadoConIdAsync();
+        await SembrarCompraConCartonAsync(
+            organizadorId, compradorId, cartonIds[0], 100m, EstadoCompra.Confirmado);
+
+        // Política "comprador-cuenta": 30 permits / 5 min, particionada por el claim NameIdentifier —
+        // la misma que Listar_SuperandoElLimiteDeSolicitudes_Devuelve429, reutilizada tal cual
+        // (NFR-02): el endpoint que más trabajo de CPU genera por request es el que más necesita el
+        // límite.
+        for (var intento = 1; intento <= 30; intento++)
+        {
+            var respuesta = await comprador.GetAsync($"/api/compradores/mis-cartones/{cartonIds[0]}/pdf");
+            Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+        }
+
+        var request31 = await comprador.GetAsync($"/api/compradores/mis-cartones/{cartonIds[0]}/pdf");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, request31.StatusCode);
     }
 
     private sealed record ErrorResponseDto(string Error, string Message);

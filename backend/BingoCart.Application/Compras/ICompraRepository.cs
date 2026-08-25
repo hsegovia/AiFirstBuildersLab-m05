@@ -1,3 +1,4 @@
+using BingoCart.Domain.Bingos;
 using BingoCart.Domain.Compras;
 
 namespace BingoCart.Application.Compras;
@@ -70,4 +71,15 @@ public interface ICompraRepository
     /// llamador (Application, <c>MisCartonesService</c>) — este puerto no revalida.
     /// </summary>
     Task<CartonesAdquiridosPaginados> ListarCartonesDelCompradorAsync(Guid compradorId, int page, int pageSize);
+
+    /// <summary>
+    /// Devuelve el <see cref="Carton"/> con <paramref name="cartonId"/> SOLO si pertenece a alguna
+    /// compra de <paramref name="compradorId"/> — spec FEAT-009d, Block 4 (FR-05/AC-05). Cruza
+    /// <c>CompraCartones</c> con <c>Compras</c> filtrando por <c>CompradorId</c>, mismo criterio de
+    /// pertenencia que <see cref="ListarCartonesDelCompradorAsync"/>. <c>null</c> tanto si el cartón
+    /// no existe como si pertenece a otro comprador — Application (<c>MisCartonesService</c>) traduce
+    /// ambos casos a la misma <c>CartonNoEncontradoException</c>, sin distinguirlos
+    /// (anti-enumeración, R-01, precedente <c>ObtenerCompraPropiaAsync</c> de FEAT-009c).
+    /// </summary>
+    Task<Carton?> ObtenerCartonDelCompradorAsync(Guid compradorId, Guid cartonId);
 }

@@ -50,4 +50,31 @@ public sealed class MisCartonesController : ControllerBase
 
         return Ok(response);
     }
+
+    /// <summary>
+    /// Descarga el PDF del cartón <paramref name="cartonId"/> propio (FR-04/AC-04, spec Block 4).
+    /// Primer endpoint binario del proyecto: el 200 sale con <c>Content-Type: application/pdf</c> vía
+    /// <c>File(...)</c>; el 404 (<c>CartonNoEncontrado</c>) sigue saliendo como JSON, por
+    /// <c>ExceptionHandlingMiddleware</c> — los dos content types conviven en el mismo endpoint según
+    /// el resultado, deliberado. Se permite descargar el PDF de un cartón de una compra cancelada
+    /// (A-02): el PDF es comprobante de lo ocurrido, no título de propiedad vigente. El PDF se genera
+    /// en memoria en <c>MisCartonesService.ObtenerPdfAsync</c> y no se persiste en ningún lado
+    /// (R-03).
+    /// </summary>
+    [HttpGet("mis-cartones/{cartonId:guid}/pdf")]
+    [Authorize(Roles = "Comprador")]
+    [EnableRateLimiting("comprador-cuenta")]
+    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> DescargarPdf(Guid cartonId)
+    {
+        var compradorId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+        var pdf = await _misCartonesService.ObtenerPdfAsync(compradorId, cartonId);
+
+        return File(pdf, "application/pdf", $"{cartonId}.pdf");
+    }
 }

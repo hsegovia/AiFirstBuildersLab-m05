@@ -1,5 +1,6 @@
 using BingoCart.Application.Compras;
 using BingoCart.Application.Compras.Dtos;
+using BingoCart.Domain.Bingos;
 using Moq;
 
 namespace BingoCart.Application.Tests.Compras;
@@ -32,7 +33,7 @@ public sealed class MisCartonesServiceTests
             .Setup(r => r.ListarCartonesDelCompradorAsync(compradorId, 1, 50))
             .ReturnsAsync(new CartonesAdquiridosPaginados(itemsDeLaPagina, 120));
 
-        var service = new MisCartonesService(compraRepository.Object);
+        var service = new MisCartonesService(compraRepository.Object, Mock.Of<ICartonPdfRenderer>());
 
         var response = await service.ListarAsync(compradorId, page: 1, pageSize: 200);
 
@@ -44,5 +45,32 @@ public sealed class MisCartonesServiceTests
         Assert.Equal(120, response.Total);
         Assert.Equal(50, response.Items.Count);
         compraRepository.Verify(r => r.ListarCartonesDelCompradorAsync(compradorId, 1, 50), Times.Once());
+    }
+
+    // Spec FEAT-009d, Block 4 — sad path del 500 genérico: una falla del renderer no se traga ni se
+    // convierte en un 200 vacío, se propaga tal cual (sin envolverla ni filtrar su mensaje) para que
+    // ExceptionHandlingMiddleware la capture con su catch genérico.
+    [Fact]
+    public async Task ObtenerPdfAsync_ConRendererQueFalla_PropagaLaExcepcionSinFiltrarDetalles()
+    {
+        var compradorId = Guid.NewGuid();
+        var cartonId = Guid.NewGuid();
+        var carton = Carton.Crear(Guid.NewGuid(), Enumerable.Range(1, 10).ToList(), numeroCorrelativo: 7);
+
+        var compraRepository = new Mock<ICompraRepository>();
+        compraRepository
+            .Setup(r => r.ObtenerCartonDelCompradorAsync(compradorId, cartonId))
+            .ReturnsAsync(carton);
+
+        var cartonPdfRenderer = new Mock<ICartonPdfRenderer>();
+        cartonPdfRenderer
+            .Setup(r => r.Renderizar(carton.Id, carton.NumeroCorrelativo, carton.Numeros))
+            .Throws(new InvalidOperationException("Fallo simulado del renderer."));
+
+        var service = new MisCartonesService(compraRepository.Object, cartonPdfRenderer.Object);
+
+        var excepcion = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ObtenerPdfAsync(compradorId, cartonId));
+        Assert.Equal("Fallo simulado del renderer.", excepcion.Message);
     }
 }

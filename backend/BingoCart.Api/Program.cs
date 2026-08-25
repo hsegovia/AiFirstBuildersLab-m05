@@ -97,8 +97,8 @@ builder.Services.AddScoped<ICompraService, CompraService>();
 // de ICompraRepository/IEnvioMailService, ambos Scoped.
 builder.Services.AddScoped<ICompraOrganizadorService, CompraOrganizadorService>();
 
-// FEAT-009d, Block 3: IMisCartonesService Scoped, mismo lifetime que el resto — depende únicamente
-// de ICompraRepository, ya Scoped.
+// FEAT-009d, Block 3/4: IMisCartonesService Scoped, mismo lifetime que el resto — depende de
+// ICompraRepository y (desde Block 4) de ICartonPdfRenderer, ambos ya Scoped.
 builder.Services.AddScoped<IMisCartonesService, MisCartonesService>();
 
 // FEAT-009b, Block 3: outbox de mail de confirmación de compra. IEnvioMailRepository/
