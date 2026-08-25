@@ -1,8 +1,10 @@
 using BingoCart.Application.Compradores;
+using BingoCart.Application.Compradores.Dtos;
 using BingoCart.Application.Organizadores;
 using BingoCart.Domain.Compradores;
 using BingoCart.Domain.Organizadores;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 
 namespace BingoCart.Infrastructure.Identity;
 
@@ -112,5 +114,88 @@ public sealed class IdentityGateway : IIdentityGateway, ICompradorIdentityGatewa
 
         var errores = resultadoRol.Errors.Select(error => error.Description).ToList();
         return new IdentityGatewayResult(resultadoRol.Succeeded, errores);
+    }
+
+    // Datos de cuenta (spec FEAT-009d, Block 5) — actualización y lectura, mismo UserManager que
+    // arriba, sin ningún estado ni wiring adicional.
+
+    public async Task<CuentaCompradorResponse?> ObtenerCuentaAsync(Guid compradorId)
+    {
+        var usuario = await _userManager.FindByIdAsync(compradorId.ToString());
+        if (usuario is null)
+        {
+            return null;
+        }
+
+        return new CuentaCompradorResponse(
+            usuario.Apellido ?? string.Empty,
+            usuario.Nombre ?? string.Empty,
+            usuario.Cuit,
+            usuario.Email ?? string.Empty);
+    }
+
+    // Reutiliza CheckPasswordAsync — el mismo primitivo que SignInManager.CheckPasswordSignInAsync
+    // (usado por AutenticarAsync arriba) delega internamente para comparar el hash — sin leer ni
+    // comparar PasswordHash a mano en ningún punto. A diferencia de AutenticarAsync, esto NO pasa
+    // por CheckPasswordSignInAsync: esta operación no es un intento de login (la sesión ya es
+    // válida, el JWT ya autenticó al comprador), es la re-verificación de identidad que exige
+    // ActualizarCuentaAsync (FR-13); mezclarla con el contador de lockout de inicio de sesión
+    // penalizaría al comprador por errores de tipeo en un formulario de datos, no en un login.
+    public async Task<bool> VerificarPasswordAsync(Guid compradorId, string password)
+    {
+        var usuario = await _userManager.FindByIdAsync(compradorId.ToString());
+        if (usuario is null)
+        {
+            return false;
+        }
+
+        return await _userManager.CheckPasswordAsync(usuario, password);
+    }
+
+    public async Task<bool> ExisteMailDeOtraCuentaAsync(Guid compradorId, string mail)
+    {
+        var usuario = await _userManager.FindByEmailAsync(mail);
+        return usuario is not null && usuario.Id != compradorId;
+    }
+
+    public async Task<bool> ExisteCuitDeOtraCuentaAsync(Guid compradorId, string cuit)
+    {
+        var usuario = await _userManager.Users.FirstOrDefaultAsync(u => u.Cuit == cuit);
+        return usuario is not null && usuario.Id != compradorId;
+    }
+
+    // La parte que rompe si se hace ingenuamente (R-03): UserManager.SetEmailAsync toca Email/
+    // NormalizedEmail pero NUNCA UserName/NormalizedUserName. El alta (CrearUsuarioAsync, arriba)
+    // setea UserName = mail, así que si esta actualización solo llamara a SetEmailAsync,
+    // NormalizedUserName quedaría desincronizado del mail real — y AspNetUsers tiene un índice
+    // único sobre esa columna. Se mutan los cinco campos (Email/NormalizedEmail/UserName/
+    // NormalizedUserName/SecurityStamp) EXPLÍCITAMENTE y se persisten en una única llamada a
+    // UpdateAsync, en vez de encadenar SetEmailAsync + SetUserNameAsync (cada una hace su propio
+    // round-trip Y SetEmailAsync además resetea EmailConfirmed a false como efecto colateral no
+    // documentado en el spec, deshaciendo la activación inmediata sin verificación de mail del
+    // alta) — normalizando con los mismos métodos que usaría Identity (NormalizeEmail/NormalizeName)
+    // para no duplicar a mano la lógica de normalización configurada.
+    public async Task<IdentityGatewayResult> ActualizarDatosAsync(
+        Guid compradorId, string apellido, string nombre, string cuit, string mail)
+    {
+        var usuario = await _userManager.FindByIdAsync(compradorId.ToString());
+        if (usuario is null)
+        {
+            return new IdentityGatewayResult(false, new List<string> { "No se encontró la cuenta del comprador." });
+        }
+
+        usuario.Apellido = apellido;
+        usuario.Nombre = nombre;
+        usuario.Cuit = cuit;
+        usuario.Email = mail;
+        usuario.NormalizedEmail = _userManager.NormalizeEmail(mail);
+        usuario.UserName = mail;
+        usuario.NormalizedUserName = _userManager.NormalizeName(mail);
+        usuario.SecurityStamp = Guid.NewGuid().ToString();
+
+        var resultado = await _userManager.UpdateAsync(usuario);
+
+        var errores = resultado.Errors.Select(error => error.Description).ToList();
+        return new IdentityGatewayResult(resultado.Succeeded, errores);
     }
 }

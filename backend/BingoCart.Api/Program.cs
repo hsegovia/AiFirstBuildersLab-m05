@@ -13,6 +13,7 @@ using BingoCart.Application.Organizadores;
 using BingoCart.Infrastructure.Auth;
 using BingoCart.Infrastructure.Bingos;
 using BingoCart.Infrastructure.Carritos;
+using BingoCart.Infrastructure.Compradores;
 using BingoCart.Infrastructure.Compras;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Descubrimiento;
@@ -90,6 +91,11 @@ builder.Services.AddScoped<ICarritoService, CarritoService>();
 // el resto (dependen de AppDbContext/ICarritoRepository/IBingoRepository, todos Scoped).
 // ICompradorIdentityGateway ya se registra más arriba (mismo bloque que IIdentityGateway).
 builder.Services.AddScoped<ICompradorService, CompradorService>();
+
+// FEAT-009d, Block 5: ICompradorCuentaRepository Scoped, mismo lifetime que el resto (depende de
+// AppDbContext) — puerto PROPIO de la mitad "cuenta" (D-03), no compartido con ICompraRepository.
+builder.Services.AddScoped<ICompradorCuentaRepository, CompradorCuentaRepository>();
+
 builder.Services.AddScoped<ICompraRepository, CompraRepository>();
 builder.Services.AddScoped<ICompraService, CompraService>();
 
