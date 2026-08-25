@@ -391,10 +391,12 @@ public class CompradorServiceTests
         var gateway = new Mock<ICompradorIdentityGateway>();
         var cuentaRepository = new Mock<ICompradorCuentaRepository>();
         ConfigurarCaminoFeliz(gateway, cuentaRepository);
+        var mailQueColisiono = "colision-race-condition@example.com";
         gateway
             .Setup(g => g.ActualizarDatosAsync(
                 CompradorId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(new IdentityGatewayResult(false, new List<string> { "Error interno de Identity." }));
+            .ReturnsAsync(new IdentityGatewayResult(
+                false, new List<string> { $"UserName '{mailQueColisiono}' is already taken." }));
 
         var service = CrearService(gateway, cuentaRepository);
 
@@ -406,6 +408,13 @@ public class CompradorServiceTests
             service.ActualizarCuentaAsync(CompradorId, CrearActualizarRequest()));
 
         Assert.NotNull(excepcion);
+
+        // Regresión de seguridad (F-SAST-10, hallazgo del SAST de cierre de CODE): los errores
+        // crudos de IdentityResult pueden incluir el valor real que colisionó (a diferencia de
+        // PasswordInvalidaException, que solo describe reglas). Esta excepción no es de dominio y
+        // cae en el catch genérico del middleware, que loguea el objeto completo — si el mensaje
+        // llevara el mail, terminaría en los logs del servidor. El mensaje debe ser genérico.
+        Assert.DoesNotContain(mailQueColisiono, excepcion!.Message);
     }
 
     [Fact]

@@ -162,13 +162,23 @@ public sealed class CompradorService : ICompradorService
         }
 
         // (7) Primera escritura: los cuatro campos juntos (A-03). Un IdentityResult no exitoso se
-        // traduce a excepción, no se ignora.
+        // traduce a excepción, no se ignora. `resultado.Errores` NUNCA se interpola en el mensaje de
+        // la excepción ni se loguea tal cual: los errores de duplicado de Identity
+        // (DuplicateUserName/DuplicateEmail) incluyen el valor real que colisionó —a diferencia de
+        // los errores de política de contraseña (PasswordInvalidaException), que son genéricos—, y
+        // esta excepción no es de dominio, así que cae en el catch genérico del middleware, que
+        // loguea el objeto excepción completo. Filtrar acá es lo único que evita que ese mail/CUIT
+        // termine en los logs del servidor (mitigación de R-05, AC de este bloque: "ningún log...
+        // ni ex.Message").
         var resultado = await _gateway.ActualizarDatosAsync(
             compradorId, request.Apellido, request.Nombre, request.Cuit, request.Mail);
         if (!resultado.Exitoso)
         {
-            throw new InvalidOperationException(
-                "No se pudo actualizar la cuenta del comprador: " + string.Join("; ", resultado.Errores));
+            _logger.LogError(
+                "Fallo al actualizar la cuenta del comprador. CompradorId: {CompradorId}. CantidadErrores: {CantidadErrores}.",
+                compradorId,
+                resultado.Errores.Count);
+            throw new InvalidOperationException("No se pudo actualizar la cuenta del comprador.");
         }
 
         // (8) Auditoría (mitigación de R-05): compradorId, timestamp y NOMBRES de los campos que
