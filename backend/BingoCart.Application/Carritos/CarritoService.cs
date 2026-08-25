@@ -91,7 +91,11 @@ public sealed class CarritoService : ICarritoService
 
             itemsResueltos.Add(item);
             itemsResponse.Add(new ItemCarritoResponse(
-                item.CartonId, cartonInfo.NombreOrganizacion, cartonInfo.NombreEvento, item.PrecioUnitario));
+                item.CartonId,
+                cartonInfo.NumeroCorrelativo,
+                cartonInfo.NombreOrganizacion,
+                cartonInfo.NombreEvento,
+                item.PrecioUnitario));
         }
 
         var carrito = Carrito.DeItems(itemsResueltos);
@@ -188,6 +192,7 @@ public sealed class CarritoService : ICarritoService
                 var resumen = resumenesPorBingoId[carton.BingoId];
                 return new CartonDescubiertoResponse(
                     carton.Id,
+                    carton.NumeroCorrelativo,
                     resumen.NombreOrganizacion,
                     resumen.NombreEvento,
                     resumen.FechaSorteoUtc,

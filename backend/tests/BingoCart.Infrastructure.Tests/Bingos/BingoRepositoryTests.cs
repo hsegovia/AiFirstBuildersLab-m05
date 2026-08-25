@@ -7,6 +7,7 @@ using BingoCart.Domain.Compras;
 using BingoCart.Infrastructure.Bingos;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Identity;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 // CompraCarton (Infrastructure.Data): fila de persistencia pura de CompraCartones, sembrada
@@ -62,8 +63,8 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
             organizadorId: organizadorId,
             ahoraUtc: ahoraUtc);
 
-    private static Carton NuevoCarton(Guid bingoId, params int[] numeros) =>
-        Carton.Crear(bingoId, numeros);
+    private static Carton NuevoCarton(Guid bingoId, int numeroCorrelativo, params int[] numeros) =>
+        Carton.Crear(bingoId, numeros, numeroCorrelativo);
 
     // ObtenerParaCarritoAsync (spec FEAT-008b, Block 2) hace un JOIN real contra AppDbContext.Users
     // para NombreOrganizacion — a diferencia del resto de tests de esta clase (Bingo.OrganizadorId
@@ -134,13 +135,13 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
 
         var cartones = new[]
         {
-            NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
-            NuevoCarton(bingo.Id, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20),
-            NuevoCarton(bingo.Id, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30),
-            NuevoCarton(bingo.Id, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40),
-            NuevoCarton(bingo.Id, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50),
-            NuevoCarton(bingo.Id, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60),
-            NuevoCarton(bingo.Id, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70),
+            NuevoCarton(bingo.Id, numeroCorrelativo: 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+            NuevoCarton(bingo.Id, numeroCorrelativo: 2, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20),
+            NuevoCarton(bingo.Id, numeroCorrelativo: 3, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30),
+            NuevoCarton(bingo.Id, numeroCorrelativo: 4, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40),
+            NuevoCarton(bingo.Id, numeroCorrelativo: 5, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50),
+            NuevoCarton(bingo.Id, numeroCorrelativo: 6, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60),
+            NuevoCarton(bingo.Id, numeroCorrelativo: 7, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70),
         };
 
         await _repository.CrearAsync(bingo, cartones);
@@ -167,6 +168,9 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         }
     }
 
+    // Los dos cartones se siembran con correlativos DISTINTOS a propósito (FEAT-009d, R-09): con el
+    // mismo correlativo, el INSERT violaría también IX_Cartones_BingoId_NumeroCorrelativo y el test
+    // pasaría por el índice equivocado, dejando de cubrir lo que dice cubrir.
     [Fact]
     public async Task InsertarDosCartonesConMismoBingoIdYMismosNumeros_LanzaDbUpdateExceptionPorIndiceUnico()
     {
@@ -176,15 +180,53 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         _context.Bingos.Add(bingo);
         await _context.SaveChangesAsync();
 
-        var primerCarton = NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
-        var segundoCartonMismosNumeros = NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var primerCarton = NuevoCarton(bingo.Id, numeroCorrelativo: 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var segundoCartonMismosNumeros = NuevoCarton(bingo.Id, numeroCorrelativo: 2, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
 
         _context.Cartones.Add(primerCarton);
         await _context.SaveChangesAsync();
 
         _context.Cartones.Add(segundoCartonMismosNumeros);
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => _context.SaveChangesAsync());
+        var excepcion = await Assert.ThrowsAsync<DbUpdateException>(() => _context.SaveChangesAsync());
+
+        // ThrowsAsync garantiza el tipo de la excepción EXTERNA, no que traiga inner: se tipa con
+        // IsType (que devuelve la instancia) en vez de con `!`, para que una DbUpdateException sin
+        // inner falle con un mensaje legible y no con un NullReferenceException. El 2601 es el
+        // error de SQL Server por violación de índice único, y el nombre distingue CUÁL.
+        var sqlException = Assert.IsType<SqlException>(excepcion.InnerException);
+
+        Assert.Equal(2601, sqlException.Number);
+        Assert.Contains("IX_Cartones_BingoId_NumerosSerializados", sqlException.Message);
+    }
+
+    [Fact]
+    public async Task Insertar_DosCartonesConMismoBingoYCorrelativo_LanzaDbUpdateException()
+    {
+        var organizadorId = Guid.NewGuid();
+        var ahoraUtc = DateTime.UtcNow;
+        var bingo = NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc);
+        _context.Bingos.Add(bingo);
+        await _context.SaveChangesAsync();
+
+        var primerCarton = NuevoCarton(bingo.Id, numeroCorrelativo: 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var segundoCartonMismoCorrelativo = NuevoCarton(bingo.Id, numeroCorrelativo: 1, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+
+        _context.Cartones.Add(primerCarton);
+        await _context.SaveChangesAsync();
+
+        _context.Cartones.Add(segundoCartonMismoCorrelativo);
+
+        var excepcion = await Assert.ThrowsAsync<DbUpdateException>(() => _context.SaveChangesAsync());
+
+        // ThrowsAsync garantiza el tipo de la excepción EXTERNA, no que traiga inner: se tipa con
+        // IsType (que devuelve la instancia) en vez de con `!`, para que una DbUpdateException sin
+        // inner falle con un mensaje legible y no con un NullReferenceException. El 2601 es el
+        // error de SQL Server por violación de índice único, y el nombre distingue CUÁL.
+        var sqlException = Assert.IsType<SqlException>(excepcion.InnerException);
+
+        Assert.Equal(2601, sqlException.Number);
+        Assert.Contains("IX_Cartones_BingoId_NumeroCorrelativo", sqlException.Message);
     }
 
     [Fact]
@@ -300,8 +342,8 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         var bingo = NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc);
         var cartones = new[]
         {
-            NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
-            NuevoCarton(bingo.Id, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20),
+            NuevoCarton(bingo.Id, numeroCorrelativo: 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+            NuevoCarton(bingo.Id, numeroCorrelativo: 2, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20),
         };
         await _repository.CrearAsync(bingo, cartones);
 
@@ -336,7 +378,7 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         var organizadorId = Guid.NewGuid();
         var ahoraUtc = DateTime.UtcNow;
         var bingo = NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc);
-        var carton = NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var carton = NuevoCarton(bingo.Id, numeroCorrelativo: 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
         _context.Bingos.Add(bingo);
         _context.Cartones.Add(carton);
         await _context.SaveChangesAsync();
@@ -359,8 +401,8 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         var organizadorDos = NuevoOrganizador(Guid.NewGuid(), "Club Confirmar Dos");
         var bingoUno = NuevoBingo(organizadorUno.Id, ahoraUtc.AddDays(5), ahoraUtc);
         var bingoDos = NuevoBingo(organizadorDos.Id, ahoraUtc.AddDays(6), ahoraUtc);
-        var cartonUno = NuevoCarton(bingoUno.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
-        var cartonDos = NuevoCarton(bingoDos.Id, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+        var cartonUno = NuevoCarton(bingoUno.Id, numeroCorrelativo: 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var cartonDos = NuevoCarton(bingoDos.Id, numeroCorrelativo: 1, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
 
         _context.Users.AddRange(organizadorUno, organizadorDos);
         _context.Bingos.AddRange(bingoUno, bingoDos);
@@ -390,7 +432,7 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         var ahoraUtc = DateTime.UtcNow;
         var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Ya Vendido");
         var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc, costoPorCarton: 120m);
-        var carton = NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var carton = NuevoCarton(bingo.Id, numeroCorrelativo: 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
 
         _context.Users.Add(organizador);
         _context.Bingos.Add(bingo);
@@ -445,8 +487,8 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
 
         _context.Users.AddRange(organizadorActivo, organizadorVencido);
         _context.Bingos.AddRange(bingoActivo, bingoVencido);
-        var cartonActivo = NuevoCarton(bingoActivo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
-        var cartonVencido = NuevoCarton(bingoVencido.Id, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+        var cartonActivo = NuevoCarton(bingoActivo.Id, numeroCorrelativo: 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var cartonVencido = NuevoCarton(bingoVencido.Id, numeroCorrelativo: 1, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
         _context.Cartones.AddRange(cartonActivo, cartonVencido);
         await _context.SaveChangesAsync();
 
@@ -477,7 +519,7 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         var organizadorId = Guid.NewGuid();
         var ahoraUtc = DateTime.UtcNow;
         var bingo = NuevoBingo(organizadorId, ahoraUtc.AddDays(5), ahoraUtc);
-        var carton = NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var carton = NuevoCarton(bingo.Id, numeroCorrelativo: 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
         _context.Bingos.Add(bingo);
         _context.Cartones.Add(carton);
         await _context.SaveChangesAsync();
@@ -498,7 +540,7 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
         var ahoraUtc = DateTime.UtcNow;
         var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Cancelada Carrito");
         var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc, costoPorCarton: 130m);
-        var carton = NuevoCarton(bingo.Id, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var carton = NuevoCarton(bingo.Id, numeroCorrelativo: 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
 
         _context.Users.Add(organizador);
         _context.Bingos.Add(bingo);
@@ -514,5 +556,49 @@ public sealed class BingoRepositoryTests : IAsyncLifetime
 
         Assert.NotNull(resultado);
         Assert.Equal(carton.Id, resultado!.CartonId);
+    }
+
+    // Spec FEAT-009d, Block 2 (FR-12)
+    [Fact]
+    public async Task ObtenerParaCarritoAsync_IncluyeElNumeroCorrelativoDelCarton()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Correlativo Carrito");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc, costoPorCarton: 130m);
+        var carton = NuevoCarton(bingo.Id, numeroCorrelativo: 7, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.Add(carton);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ObtenerParaCarritoAsync(carton.Id, ahoraUtc);
+
+        Assert.NotNull(resultado);
+        Assert.Equal(carton.Id, resultado!.CartonId);
+        Assert.Equal(7, resultado.NumeroCorrelativo);
+    }
+
+    // Spec FEAT-009d, Block 2 (FR-12): CartonParaConfirmarCompra lleva el correlativo hasta la
+    // confirmación de compra, de donde lo toma el mail (EnvioMailRepository) y el PDF.
+    [Fact]
+    public async Task ObtenerParaConfirmarCompraAsync_IncluyeElNumeroCorrelativoDeCadaCarton()
+    {
+        var ahoraUtc = DateTime.UtcNow;
+        var organizador = NuevoOrganizador(Guid.NewGuid(), "Club Correlativo Confirmar");
+        var bingo = NuevoBingo(organizador.Id, ahoraUtc.AddDays(5), ahoraUtc);
+        var cartonUno = NuevoCarton(bingo.Id, numeroCorrelativo: 3, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        var cartonDos = NuevoCarton(bingo.Id, numeroCorrelativo: 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.AddRange(cartonUno, cartonDos);
+        await _context.SaveChangesAsync();
+
+        var resultado = await _repository.ObtenerParaConfirmarCompraAsync(new[] { cartonUno.Id, cartonDos.Id });
+
+        Assert.Equal(2, resultado.Count);
+        Assert.Equal(3, Assert.Single(resultado, r => r.CartonId == cartonUno.Id).NumeroCorrelativo);
+        Assert.Equal(9, Assert.Single(resultado, r => r.CartonId == cartonDos.Id).NumeroCorrelativo);
     }
 }

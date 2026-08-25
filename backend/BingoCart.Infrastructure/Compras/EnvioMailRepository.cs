@@ -68,7 +68,7 @@ public sealed class EnvioMailRepository : IEnvioMailRepository
         var itemsPorCompra = await _context.CompraCartones
             .Where(cc => compraIds.Contains(cc.CompraId))
             .Join(_context.Cartones, cc => cc.CartonId, carton => carton.Id,
-                (cc, carton) => new { cc.CompraId, cc.PrecioUnitario, CartonId = carton.Id, carton.Numeros })
+                (cc, carton) => new { cc.CompraId, cc.PrecioUnitario, CartonId = carton.Id, carton.NumeroCorrelativo, carton.Numeros })
             .AsNoTracking()
             .ToListAsync();
 
@@ -83,7 +83,7 @@ public sealed class EnvioMailRepository : IEnvioMailRepository
             {
                 var items = itemsPorCompra.Where(i => i.CompraId == compra.Id).ToList();
                 var cartones = items
-                    .Select(i => new CartonParaMail(i.CartonId, i.Numeros))
+                    .Select(i => new CartonParaMail(i.CartonId, i.NumeroCorrelativo, i.Numeros))
                     .ToList();
                 var montoTotal = items.Sum(i => i.PrecioUnitario);
                 var nombreOrganizacion = nombresOrganizadores.TryGetValue(compra.OrganizadorId, out var nombre)

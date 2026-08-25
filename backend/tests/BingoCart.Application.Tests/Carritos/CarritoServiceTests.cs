@@ -28,7 +28,7 @@ public class CarritoServiceTests
     {
         var sesionId = Guid.NewGuid().ToString();
         var cartonId = Guid.NewGuid();
-        var cartonInfo = new CartonParaCarrito(cartonId, Guid.NewGuid(), 150m, "Club X", "Bingo X");
+        var cartonInfo = new CartonParaCarrito(cartonId, NumeroCorrelativo: 1, Guid.NewGuid(), 150m, "Club X", "Bingo X");
 
         var carritoRepository = new Mock<ICarritoRepository>();
         var bingoRepository = new Mock<IBingoRepository>();
@@ -79,7 +79,7 @@ public class CarritoServiceTests
     {
         var sesionId = Guid.NewGuid().ToString();
         var cartonId = Guid.NewGuid();
-        var cartonInfo = new CartonParaCarrito(cartonId, Guid.NewGuid(), 100m, "Club Y", "Bingo Y");
+        var cartonInfo = new CartonParaCarrito(cartonId, NumeroCorrelativo: 1, Guid.NewGuid(), 100m, "Club Y", "Bingo Y");
 
         var carritoRepository = new Mock<ICarritoRepository>();
         var bingoRepository = new Mock<IBingoRepository>();
@@ -117,7 +117,7 @@ public class CarritoServiceTests
         {
             bingoRepository
                 .Setup(r => r.ObtenerParaCarritoAsync(item.CartonId, It.IsAny<DateTime>()))
-                .ReturnsAsync(new CartonParaCarrito(item.CartonId, Guid.NewGuid(), item.PrecioUnitario, "Club", "Bingo"));
+                .ReturnsAsync(new CartonParaCarrito(item.CartonId, NumeroCorrelativo: 1, Guid.NewGuid(), item.PrecioUnitario, "Club", "Bingo"));
         }
 
         var service = CrearService(carritoRepository, bingoRepository, descubrimientoRepository);
@@ -265,5 +265,38 @@ public class CarritoServiceTests
         await service.QuitarAsync(sesionId, cartonId);
 
         carritoRepository.Verify(r => r.QuitarAsync(sesionId, cartonId), Times.Once());
+    }
+
+    // Spec FEAT-009d, Block 2 (FR-12)
+    [Fact]
+    public async Task ObtenerCarritoAsync_MapeaElNumeroCorrelativoDeCadaCartonAlItemDeLaRespuesta()
+    {
+        var sesionId = Guid.NewGuid().ToString();
+        var itemUno = new ItemCarrito(Guid.NewGuid(), 100m);
+        var itemDos = new ItemCarrito(Guid.NewGuid(), 200m);
+        var correlativos = new Dictionary<Guid, int> { [itemUno.CartonId] = 8, [itemDos.CartonId] = 15 };
+
+        var carritoRepository = new Mock<ICarritoRepository>();
+        var bingoRepository = new Mock<IBingoRepository>();
+        var descubrimientoRepository = new Mock<IDescubrimientoRepository>();
+
+        carritoRepository
+            .Setup(r => r.ObtenerItemsAsync(sesionId))
+            .ReturnsAsync(new List<ItemCarrito> { itemUno, itemDos });
+
+        foreach (var item in new[] { itemUno, itemDos })
+        {
+            bingoRepository
+                .Setup(r => r.ObtenerParaCarritoAsync(item.CartonId, It.IsAny<DateTime>()))
+                .ReturnsAsync(new CartonParaCarrito(
+                    item.CartonId, correlativos[item.CartonId], Guid.NewGuid(), item.PrecioUnitario, "Club", "Bingo"));
+        }
+
+        var service = CrearService(carritoRepository, bingoRepository, descubrimientoRepository);
+
+        var response = await service.ObtenerCarritoAsync(sesionId);
+
+        Assert.Equal(8, Assert.Single(response.Items, i => i.CartonId == itemUno.CartonId).NumeroCorrelativo);
+        Assert.Equal(15, Assert.Single(response.Items, i => i.CartonId == itemDos.CartonId).NumeroCorrelativo);
     }
 }

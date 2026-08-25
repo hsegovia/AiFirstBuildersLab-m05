@@ -2,10 +2,12 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using BingoCart.Application.Compras;
+using BingoCart.Domain.Bingos;
 using BingoCart.Domain.Compras;
 using BingoCart.Domain.Compras.Exceptions;
 using BingoCart.Infrastructure.Compras;
 using BingoCart.Infrastructure.Data;
+using BingoCart.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace BingoCart.Infrastructure.Tests.Compras;
@@ -224,5 +226,68 @@ public sealed class CompraRepositoryTests : IAsyncLifetime
         var item = Assert.Single(resultado.Items);
         Assert.Equal(compraSinCartones.Id, item.Compra.Id);
         Assert.Equal(0m, item.MontoTotal);
+    }
+
+    // Spec FEAT-009d, Block 3: ListarCartonesDelCompradorAsync — join de 4 tablas (CompraCartones ->
+    // Compras -> Cartones -> Bingos -> AspNetUsers). Requiere un ApplicationUser real: el join hacia
+    // Users es INNER (mismo criterio que ObtenerParaConfirmarCompraAsync/ObtenerParaCarritoAsync de
+    // BingoRepository) — sin esa fila, ningún resultado aparecería.
+
+    private static ApplicationUser NuevoOrganizadorReal(Guid id, string nombreOrganizacion) => new()
+    {
+        Id = id,
+        UserName = $"{id}@example.com",
+        Email = $"{id}@example.com",
+        NombreOrganizacion = nombreOrganizacion,
+        Cuit = id.ToString("N")[..11],
+        Telefono = "+54 11 4444-5555",
+    };
+
+    [Fact]
+    public async Task ListarCartonesDelComprador_OrdenaPorFechaDeCompraDescendente()
+    {
+        var compradorId = Guid.NewGuid();
+        var organizadorId = Guid.NewGuid();
+        var ahoraUtc = DateTime.UtcNow;
+
+        var organizador = NuevoOrganizadorReal(organizadorId, "Club Orden Correlativo");
+        var bingo = Bingo.Crear("Bingo orden", ahoraUtc.AddDays(10), 5, 100m, organizadorId, ahoraUtc);
+        var cartonCorrelativoDos = Carton.Crear(bingo.Id, Enumerable.Range(1, 10).ToArray(), numeroCorrelativo: 2);
+        var cartonCorrelativoCinco = Carton.Crear(bingo.Id, Enumerable.Range(11, 10).ToArray(), numeroCorrelativo: 5);
+        var cartonCorrelativoTres = Carton.Crear(bingo.Id, Enumerable.Range(21, 10).ToArray(), numeroCorrelativo: 3);
+
+        _context.Users.Add(organizador);
+        _context.Bingos.Add(bingo);
+        _context.Cartones.AddRange(cartonCorrelativoDos, cartonCorrelativoCinco, cartonCorrelativoTres);
+        await _context.SaveChangesAsync();
+
+        // Misma Compra (compraAntigua) con dos cartones -> misma FechaCreacionUtc: ejercita el
+        // desempate por NumeroCorrelativo ascendente. compraReciente, con fecha posterior, debe
+        // ganarle a ambos en el orden principal.
+        var compraAntigua = Compra.Crear(
+            organizadorId,
+            compradorId,
+            Guid.NewGuid(),
+            new[]
+            {
+                new ItemCompra(cartonCorrelativoCinco.Id, 100m),
+                new ItemCompra(cartonCorrelativoDos.Id, 100m),
+            },
+            MedioPago.Efectivo,
+            ahoraUtc.AddDays(-2));
+        var compraReciente = Compra.Crear(
+            organizadorId,
+            compradorId,
+            Guid.NewGuid(),
+            new[] { new ItemCompra(cartonCorrelativoTres.Id, 100m) },
+            MedioPago.Transferencia,
+            ahoraUtc);
+
+        await _repository.CrearVariasAsync(new[] { compraAntigua, compraReciente });
+
+        var resultado = await _repository.ListarCartonesDelCompradorAsync(compradorId, page: 1, pageSize: 10);
+
+        Assert.Equal(3, resultado.Total);
+        Assert.Equal(new[] { 3, 2, 5 }, resultado.Items.Select(i => i.NumeroCorrelativo).ToArray());
     }
 }

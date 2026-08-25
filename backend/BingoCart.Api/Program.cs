@@ -13,6 +13,7 @@ using BingoCart.Application.Organizadores;
 using BingoCart.Infrastructure.Auth;
 using BingoCart.Infrastructure.Bingos;
 using BingoCart.Infrastructure.Carritos;
+using BingoCart.Infrastructure.Compradores;
 using BingoCart.Infrastructure.Compras;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Descubrimiento;
@@ -90,12 +91,21 @@ builder.Services.AddScoped<ICarritoService, CarritoService>();
 // el resto (dependen de AppDbContext/ICarritoRepository/IBingoRepository, todos Scoped).
 // ICompradorIdentityGateway ya se registra más arriba (mismo bloque que IIdentityGateway).
 builder.Services.AddScoped<ICompradorService, CompradorService>();
+
+// FEAT-009d, Block 5: ICompradorCuentaRepository Scoped, mismo lifetime que el resto (depende de
+// AppDbContext) — puerto PROPIO de la mitad "cuenta" (D-03), no compartido con ICompraRepository.
+builder.Services.AddScoped<ICompradorCuentaRepository, CompradorCuentaRepository>();
+
 builder.Services.AddScoped<ICompraRepository, CompraRepository>();
 builder.Services.AddScoped<ICompraService, CompraService>();
 
 // FEAT-009c, Block 3: ICompraOrganizadorService Scoped, mismo lifetime que ICompraService — depende
 // de ICompraRepository/IEnvioMailService, ambos Scoped.
 builder.Services.AddScoped<ICompraOrganizadorService, CompraOrganizadorService>();
+
+// FEAT-009d, Block 3/4: IMisCartonesService Scoped, mismo lifetime que el resto — depende de
+// ICompraRepository y (desde Block 4) de ICartonPdfRenderer, ambos ya Scoped.
+builder.Services.AddScoped<IMisCartonesService, MisCartonesService>();
 
 // FEAT-009b, Block 3: outbox de mail de confirmación de compra. IEnvioMailRepository/
 // IEnvioMailService Scoped, mismo lifetime que el resto (dependen de AppDbContext). IEmailSender/
@@ -323,6 +333,24 @@ builder.Services.AddRateLimiter(options =>
     // (10 req/5min), este es el organizador (30 req/5min, límite más generoso porque reconciliar
     // pagos manuales es una tarea operativa recurrente, no un checkout puntual).
     options.AddPolicy("compras-organizador", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
+            Window = TimeSpan.FromMinutes(5)
+        }));
+
+    // Rate limiting sobre los 3 endpoints de "cuenta"/"cartones" del comprador (spec FEAT-009d,
+    // NFR-02: mis-cartones acá en Block 3, descarga de PDF en Block 4, PUT de datos de cuenta en
+    // Block 6) — particionado por el claim NameIdentifier del JWT, replicando la FORMA de
+    // "compras-organizador" (mismo mecanismo), pero política PROPIA con su propio límite: ninguna de
+    // las dos existentes sirve ("compradores" particiona por IP para endpoints anónimos; "compras"
+    // es 10 req/5min, calibrada para el checkout, un actor distinto). Rompe el precedente de que los
+    // GET de listado de este proyecto no llevan rate limiting (ver comentario de
+    // ComprasController.ListarMias) a propósito: de los 3 endpoints, uno genera un PDF por request
+    // (CPU no trivial) y otro muta credenciales de Identity — se aplica la misma política a los tres
+    // para mantener el criterio coherente dentro del ticket.
+    options.AddPolicy("comprador-cuenta", httpContext => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
         factory: _ => new FixedWindowRateLimiterOptions
         {

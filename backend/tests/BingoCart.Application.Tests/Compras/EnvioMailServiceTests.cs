@@ -48,7 +48,7 @@ public class EnvioMailServiceTests
                     Guid.NewGuid(),
                     "Club Uno",
                     300m,
-                    new List<CartonParaMail> { new(cartonId, new List<int> { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }) }),
+                    new List<CartonParaMail> { new(cartonId, 1, new List<int> { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }) }),
             });
     }
 
@@ -126,7 +126,7 @@ public class EnvioMailServiceTests
         envioMailRepository.Setup(r => r.ObtenerPendientesAsync(ahoraUtc)).ReturnsAsync(new List<EnvioMail> { envio });
         envioMailRepository.Setup(r => r.ObtenerDatosParaEnviarAsync(confirmacionId)).ReturnsAsync(datos);
         cartonPdfRenderer
-            .Setup(r => r.Renderizar(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<int>>()))
+            .Setup(r => r.Renderizar(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<IReadOnlyList<int>>()))
             .Returns(new byte[] { 1, 2, 3 });
         emailSender.Setup(s => s.EnviarAsync(It.IsAny<EnvioMailMensaje>())).Returns(Task.CompletedTask);
 
@@ -227,7 +227,7 @@ public class EnvioMailServiceTests
         envioMailRepository.Setup(r => r.ObtenerDatosParaEnviarAsync(confirmacionIdFallido)).ReturnsAsync(datosFallido);
         envioMailRepository.Setup(r => r.ObtenerDatosParaEnviarAsync(confirmacionIdExitoso)).ReturnsAsync(datosExitoso);
         cartonPdfRenderer
-            .Setup(r => r.Renderizar(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<int>>()))
+            .Setup(r => r.Renderizar(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<IReadOnlyList<int>>()))
             .Returns(new byte[] { 1, 2, 3 });
         emailSender
             .Setup(s => s.EnviarAsync(It.Is<EnvioMailMensaje>(m => m.Destinatario == "fallido@mail.com")))
@@ -303,7 +303,7 @@ public class EnvioMailServiceTests
             Times.Once());
         // Un mail de cancelación no adjunta PDFs (no hay cartones que confirmar, se están
         // liberando) — nunca se invoca el renderer.
-        cartonPdfRenderer.Verify(r => r.Renderizar(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<int>>()), Times.Never());
+        cartonPdfRenderer.Verify(r => r.Renderizar(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<IReadOnlyList<int>>()), Times.Never());
     }
 
     [Fact]
@@ -331,5 +331,91 @@ public class EnvioMailServiceTests
         Assert.Equal(0, envio.Intentos);
         emailSender.Verify(s => s.EnviarAsync(It.IsAny<EnvioMailMensaje>()), Times.Never());
         envioMailRepository.Verify(r => r.ActualizarAsync(It.IsAny<EnvioMail>()), Times.Never());
+    }
+
+    // Spec FEAT-009d, Block 2 (FR-12)
+    [Fact]
+    public async Task ProcesarPendientesAsync_ConConfirmacion_PasaElNumeroCorrelativoDelCartonAlRenderizarElPdf()
+    {
+        var ahoraUtc = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var confirmacionId = Guid.NewGuid();
+        var envio = EnvioMail.CrearConfirmacion(confirmacionId, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
+        var cartonId = Guid.NewGuid();
+        var numeros = new List<int> { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+        var datos = new DatosParaMailConfirmacion(
+            "comprador@mail.com",
+            "Juan",
+            "Perez",
+            new List<CompraParaMail>
+            {
+                new(Guid.NewGuid(), "Club Uno", 100m, new List<CartonParaMail> { new(cartonId, 23, numeros) }),
+            });
+
+        var envioMailRepository = new Mock<IEnvioMailRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var cartonPdfRenderer = new Mock<ICartonPdfRenderer>();
+        var timeProvider = CrearTimeProviderFijo(ahoraUtc);
+
+        envioMailRepository.Setup(r => r.ObtenerPendientesAsync(ahoraUtc)).ReturnsAsync(new List<EnvioMail> { envio });
+        envioMailRepository.Setup(r => r.ObtenerDatosParaEnviarAsync(confirmacionId)).ReturnsAsync(datos);
+        cartonPdfRenderer
+            .Setup(r => r.Renderizar(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<IReadOnlyList<int>>()))
+            .Returns(new byte[] { 1, 2, 3 });
+        emailSender.Setup(s => s.EnviarAsync(It.IsAny<EnvioMailMensaje>())).Returns(Task.CompletedTask);
+
+        var service = CrearService(envioMailRepository, emailSender, cartonPdfRenderer, timeProvider.Object);
+
+        await service.ProcesarPendientesAsync();
+
+        cartonPdfRenderer.Verify(r => r.Renderizar(cartonId, 23, numeros), Times.Once());
+    }
+
+    // Spec FEAT-009d, Block 2 (FR-12/AC-14): el cuerpo del mail identifica cada cartón por su
+    // correlativo, el mismo número que el comprador ya vio en el descubrimiento, en el carrito y en
+    // la confirmación. El GUID no aparece en el cuerpo: no le dice nada al comprador y era la única
+    // superficie del recorrido donde lo veía.
+    [Fact]
+    public async Task ProcesarPendientesAsync_ConConfirmacion_IdentificaCadaCartonPorSuCorrelativoEnElCuerpoDelMail()
+    {
+        var ahoraUtc = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var confirmacionId = Guid.NewGuid();
+        var envio = EnvioMail.CrearConfirmacion(confirmacionId, Guid.NewGuid(), ahoraUtc.AddMinutes(-5));
+        var cartonId = Guid.NewGuid();
+        var numeros = new List<int> { 3, 7, 11, 19, 22, 34, 41, 55, 67, 88 };
+        var datos = new DatosParaMailConfirmacion(
+            "comprador@mail.com",
+            "Juan",
+            "Perez",
+            new List<CompraParaMail>
+            {
+                new(Guid.NewGuid(), "Club Uno", 100m, new List<CartonParaMail> { new(cartonId, 23, numeros) }),
+            });
+
+        var envioMailRepository = new Mock<IEnvioMailRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var cartonPdfRenderer = new Mock<ICartonPdfRenderer>();
+        var timeProvider = CrearTimeProviderFijo(ahoraUtc);
+
+        envioMailRepository.Setup(r => r.ObtenerPendientesAsync(ahoraUtc)).ReturnsAsync(new List<EnvioMail> { envio });
+        envioMailRepository.Setup(r => r.ObtenerDatosParaEnviarAsync(confirmacionId)).ReturnsAsync(datos);
+        cartonPdfRenderer
+            .Setup(r => r.Renderizar(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<IReadOnlyList<int>>()))
+            .Returns(new byte[] { 1, 2, 3 });
+
+        EnvioMailMensaje? mensajeEnviado = null;
+        emailSender
+            .Setup(s => s.EnviarAsync(It.IsAny<EnvioMailMensaje>()))
+            .Callback<EnvioMailMensaje>(mensaje => mensajeEnviado = mensaje)
+            .Returns(Task.CompletedTask);
+
+        var service = CrearService(envioMailRepository, emailSender, cartonPdfRenderer, timeProvider.Object);
+
+        await service.ProcesarPendientesAsync();
+
+        Assert.NotNull(mensajeEnviado);
+        Assert.Contains("Cartón N° 23", mensajeEnviado!.CuerpoHtml);
+        Assert.DoesNotContain(cartonId.ToString(), mensajeEnviado.CuerpoHtml);
+        // Los números del cartón, que el cuerpo ya listaba (AC-02 de FEAT-009b), siguen ahí.
+        Assert.Contains("3, 7, 11, 19, 22, 34, 41, 55, 67, 88", mensajeEnviado.CuerpoHtml);
     }
 }

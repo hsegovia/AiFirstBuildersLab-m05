@@ -4,6 +4,7 @@ using System.Text.Json;
 using BingoCart.Domain.Bingos;
 using BingoCart.Domain.Compras;
 using BingoCart.Infrastructure.Auth;
+using BingoCart.Infrastructure.Compras;
 using BingoCart.Infrastructure.Data;
 using BingoCart.Infrastructure.Identity;
 using Microsoft.AspNetCore.Hosting;
@@ -180,7 +181,7 @@ public sealed class ComprasControllerTests : IAsyncLifetime
         for (var i = 0; i < cantidad; i++)
         {
             var numeros = Enumerable.Range(1 + i, 10).ToArray();
-            cartones.Add(Carton.Crear(bingoId, numeros));
+            cartones.Add(Carton.Crear(bingoId, numeros, numeroCorrelativo: i + 1));
         }
 
         return cartones;
@@ -312,7 +313,7 @@ public sealed class ComprasControllerTests : IAsyncLifetime
     {
         var ahoraUtc = DateTime.UtcNow;
         var bingo = Bingo.Crear("Bingo cancelacion e2e", ahoraUtc.AddDays(10), 1, 100m, organizadorId, ahoraUtc);
-        var carton = Carton.Crear(bingo.Id, new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+        var carton = Carton.Crear(bingo.Id, new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }, numeroCorrelativo: 1);
 
         var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(ConnectionString).Options;
         await using var context = new AppDbContext(options);
@@ -684,13 +685,102 @@ public sealed class ComprasControllerTests : IAsyncLifetime
         Assert.Contains(compraDos.Id, idsDevueltos);
     }
 
+    // Spec FEAT-009d, Block 2 (FR-12): la respuesta de POST /api/compras/confirmar es una de las
+    // superficies que FR-12 nombra, así que devuelve los cartones de cada compra creada con su
+    // correlativo. Se piden dos cartones NO contiguos del mismo bingo para que un mapeo que
+    // devolviera siempre el primer correlativo, o el índice dentro del carrito, no pueda pasar.
+    [Fact]
+    public async Task Confirmar_ConDosCartones_DevuelveCadaCartonDeLaCompraConSuNumeroCorrelativo()
+    {
+        var (_, _, cartonIds) = await SembrarOrganizadorConBingoYCartonesAsync(
+            "Club Correlativo Confirmacion", 3, costoPorCarton: 50m);
+
+        using var comprador = await NuevoCompradorAutenticadoAsync();
+        var agregado = await comprador.PostAsync($"/api/carrito/cartones/{cartonIds[0]}", content: null);
+        agregado.EnsureSuccessStatusCode();
+        (await comprador.PostAsync($"/api/carrito/cartones/{cartonIds[2]}", content: null)).EnsureSuccessStatusCode();
+        RegistrarLimpiezaRedisDeCarrito(agregado, cartonIds[0], cartonIds[2]);
+
+        var confirmar = await comprador.PostAsJsonAsync("/api/compras/confirmar", new { medioPago = "Efectivo" });
+
+        Assert.Equal(HttpStatusCode.OK, confirmar.StatusCode);
+        var respuesta = await confirmar.Content.ReadFromJsonAsync<ConfirmarCompraResponseDto>(DeserializeOptions);
+        Assert.NotNull(respuesta);
+        var compra = Assert.Single(respuesta!.Compras);
+        Assert.NotNull(compra.Cartones);
+        Assert.Equal(2, compra.Cartones!.Count);
+        Assert.Equal(1, Assert.Single(compra.Cartones, c => c.CartonId == cartonIds[0]).NumeroCorrelativo);
+        Assert.Equal(3, Assert.Single(compra.Cartones, c => c.CartonId == cartonIds[2]).NumeroCorrelativo);
+        // El campo nuevo es aditivo: lo que la respuesta ya devolvía sigue intacto.
+        Assert.Equal(2, compra.CantidadCartones);
+        Assert.Equal(100m, compra.MontoTotal);
+    }
+
+    // Spec FEAT-009d, Block 2 — AC-14 sobre las superficies que existen al cerrar este bloque (la
+    // de "mis cartones" llega en Block 3 y AC-14 se valida entero allí): un mismo cartón muestra el
+    // mismo correlativo en el descubrimiento, en el carrito, en la respuesta de confirmación de
+    // compra y en el mail. El mail es la única de las cuatro que no tiene endpoint HTTP: se verifica
+    // sobre los datos que EnvioMailService toma para armarlo, incluido el PDF adjunto.
+    [Fact]
+    public async Task Correlativo_DelMismoCarton_EsElMismoEnDescubrimientoEnElCarritoYEnElMailDeConfirmacion()
+    {
+        var (organizadorId, _, cartonIds) = await SembrarOrganizadorConBingoYCartonesAsync(
+            "Club Correlativo Consistencia", 1, costoPorCarton: 100m);
+        var cartonId = cartonIds[0];
+
+        using var comprador = await NuevoCompradorAutenticadoAsync();
+
+        var descubrimiento = await comprador.GetAsync($"/api/cartones/organizador/{organizadorId}");
+        descubrimiento.EnsureSuccessStatusCode();
+        var cartonesDescubiertos = await descubrimiento.Content.ReadFromJsonAsync<List<CartonDescubiertoDto>>(DeserializeOptions);
+        Assert.NotNull(cartonesDescubiertos);
+        var correlativoEnDescubrimiento = Assert.Single(cartonesDescubiertos!, c => c.Id == cartonId).NumeroCorrelativo;
+
+        var agregado = await comprador.PostAsync($"/api/carrito/cartones/{cartonId}", content: null);
+        agregado.EnsureSuccessStatusCode();
+        RegistrarLimpiezaRedisDeCarrito(agregado, cartonId);
+        var ver = await comprador.GetAsync("/api/carrito");
+        var carrito = await ver.Content.ReadFromJsonAsync<CarritoResponseDto>(DeserializeOptions);
+        Assert.NotNull(carrito);
+        var correlativoEnCarrito = Assert.Single(carrito!.Items).NumeroCorrelativo;
+
+        var confirmar = await comprador.PostAsJsonAsync("/api/compras/confirmar", new { medioPago = "Efectivo" });
+        Assert.Equal(HttpStatusCode.OK, confirmar.StatusCode);
+        var respuesta = await confirmar.Content.ReadFromJsonAsync<ConfirmarCompraResponseDto>(DeserializeOptions);
+        Assert.NotNull(respuesta);
+        var compraCreada = Assert.Single(respuesta!.Compras);
+        var compraId = compraCreada.CompraId;
+        var correlativoEnConfirmacion = Assert.Single(compraCreada.Cartones).NumeroCorrelativo;
+
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(ConnectionString).Options;
+        await using var context = new AppDbContext(options);
+        var confirmacionId = (await context.Compras.AsNoTracking().SingleAsync(c => c.Id == compraId)).ConfirmacionId;
+        var datosMail = await new EnvioMailRepository(context).ObtenerDatosParaEnviarAsync(confirmacionId);
+        Assert.NotNull(datosMail);
+        var correlativoEnMail = Assert.Single(Assert.Single(datosMail!.Compras).Cartones).NumeroCorrelativo;
+
+        Assert.Equal(1, correlativoEnDescubrimiento);
+        Assert.Equal(correlativoEnDescubrimiento, correlativoEnCarrito);
+        Assert.Equal(correlativoEnDescubrimiento, correlativoEnConfirmacion);
+        Assert.Equal(correlativoEnDescubrimiento, correlativoEnMail);
+    }
+
     private sealed record ErrorResponseDto(string Error, string Message);
 
-    private sealed record ItemCarritoResponseDto(Guid CartonId, string NombreOrganizacion, string NombreEvento, decimal PrecioUnitario);
+    private sealed record ItemCarritoResponseDto(
+        Guid CartonId, int NumeroCorrelativo, string NombreOrganizacion, string NombreEvento, decimal PrecioUnitario);
 
     private sealed record CarritoResponseDto(List<ItemCarritoResponseDto> Items, int CantidadTotal, decimal MontoTotal);
 
-    private sealed record CompraCreadaDto(Guid CompraId, Guid OrganizadorId, string NombreOrganizacion, int CantidadCartones, decimal MontoTotal);
+    private sealed record CompraCreadaDto(
+        Guid CompraId,
+        Guid OrganizadorId,
+        string NombreOrganizacion,
+        int CantidadCartones,
+        decimal MontoTotal,
+        List<CartonCompradoDto> Cartones);
+
+    private sealed record CartonCompradoDto(Guid CartonId, int NumeroCorrelativo);
 
     private sealed record ConfirmarCompraResponseDto(List<CompraCreadaDto> Compras);
 
@@ -701,5 +791,6 @@ public sealed class ComprasControllerTests : IAsyncLifetime
     private sealed record CompraListadoDto(List<CompraResumenDto> Items, int Total, int TotalPaginas, int Page, int PageSize);
 
     private sealed record CartonDescubiertoDto(
-        Guid Id, string NombreOrganizacion, string NombreEvento, DateTime FechaSorteoUtc, decimal CostoPorCarton, List<int> Numeros);
+        Guid Id, int NumeroCorrelativo, string NombreOrganizacion, string NombreEvento, DateTime FechaSorteoUtc,
+        decimal CostoPorCarton, List<int> Numeros);
 }

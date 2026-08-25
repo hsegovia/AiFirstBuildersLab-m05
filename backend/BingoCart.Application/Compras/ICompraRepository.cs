@@ -1,3 +1,4 @@
+using BingoCart.Domain.Bingos;
 using BingoCart.Domain.Compras;
 
 namespace BingoCart.Application.Compras;
@@ -55,4 +56,30 @@ public interface ICompraRepository
     /// una excepción sobre una colección vacía).
     /// </summary>
     Task<decimal> ObtenerMontoTotalAsync(Guid compraId);
+
+    /// <summary>
+    /// Devuelve la página <paramref name="page"/> (1-based) de tamaño <paramref name="pageSize"/> de
+    /// los cartones adquiridos por <paramref name="compradorId"/> — spec FEAT-009d, Block 3 (FR-11).
+    /// Join de cuatro tablas (<c>CompraCartones</c> → <c>Compras</c> → <c>Cartones</c> → <c>Bingos</c>
+    /// → <c>AspNetUsers</c>), filtrado por <c>Compras.CompradorId</c>. Incluye cartones de compras en
+    /// CUALQUIER estado, incluidas las canceladas (FR-02/AC-02/A-01) — a diferencia de las consultas
+    /// de disponibilidad de venta (FEAT-009c), acá el criterio es el opuesto: el comprador necesita
+    /// ver qué pasó con su compra. Orden: <c>Compra.FechaCreacionUtc</c> descendente, desempatado por
+    /// <c>Carton.NumeroCorrelativo</c> ascendente (esa columna no es única — dos cartones de la misma
+    /// compra comparten fecha — así que sin desempate la paginación no sería estable entre páginas).
+    /// <paramref name="page"/>/<paramref name="pageSize"/> se asumen ya validados/clampeados por el
+    /// llamador (Application, <c>MisCartonesService</c>) — este puerto no revalida.
+    /// </summary>
+    Task<CartonesAdquiridosPaginados> ListarCartonesDelCompradorAsync(Guid compradorId, int page, int pageSize);
+
+    /// <summary>
+    /// Devuelve el <see cref="Carton"/> con <paramref name="cartonId"/> SOLO si pertenece a alguna
+    /// compra de <paramref name="compradorId"/> — spec FEAT-009d, Block 4 (FR-05/AC-05). Cruza
+    /// <c>CompraCartones</c> con <c>Compras</c> filtrando por <c>CompradorId</c>, mismo criterio de
+    /// pertenencia que <see cref="ListarCartonesDelCompradorAsync"/>. <c>null</c> tanto si el cartón
+    /// no existe como si pertenece a otro comprador — Application (<c>MisCartonesService</c>) traduce
+    /// ambos casos a la misma <c>CartonNoEncontradoException</c>, sin distinguirlos
+    /// (anti-enumeración, R-01, precedente <c>ObtenerCompraPropiaAsync</c> de FEAT-009c).
+    /// </summary>
+    Task<Carton?> ObtenerCartonDelCompradorAsync(Guid compradorId, Guid cartonId);
 }

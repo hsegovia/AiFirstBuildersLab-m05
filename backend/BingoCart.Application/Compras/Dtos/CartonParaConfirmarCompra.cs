@@ -8,6 +8,7 @@ namespace BingoCart.Application.Compras.Dtos;
 /// </summary>
 public sealed record CartonParaConfirmarCompra(
     Guid CartonId,
+    int NumeroCorrelativo,
     Guid BingoId,
     Guid OrganizadorId,
     string NombreOrganizacion,

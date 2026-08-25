@@ -66,6 +66,9 @@ namespace BingoCart.Infrastructure.Data.Migrations
                     b.Property<Guid>("BingoId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int>("NumeroCorrelativo")
+                        .HasColumnType("int");
+
                     b.Property<string>("Numeros")
                         .IsRequired()
                         .HasMaxLength(60)
@@ -73,6 +76,9 @@ namespace BingoCart.Infrastructure.Data.Migrations
                         .HasColumnName("NumerosSerializados");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BingoId", "NumeroCorrelativo")
+                        .IsUnique();
 
                     b.HasIndex("BingoId", "Numeros")
                         .IsUnique();

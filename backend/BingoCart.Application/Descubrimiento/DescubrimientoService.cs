@@ -81,6 +81,7 @@ public sealed class DescubrimientoService : IDescubrimientoService
                 var resumen = resumenesPorBingoId[carton.BingoId];
                 return new CartonDescubiertoResponse(
                     carton.Id,
+                    carton.NumeroCorrelativo,
                     resumen.NombreOrganizacion,
                     resumen.NombreEvento,
                     resumen.FechaSorteoUtc,

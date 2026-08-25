@@ -19,6 +19,14 @@ public sealed class Carton
 
     public IReadOnlyList<int> Numeros { get; private init; } = Array.Empty<int>();
 
+    /// <summary>
+    /// Posición 1..N del cartón dentro de su bingo (FEAT-009d, FR-11). Es un dato de PRESENTACIÓN:
+    /// identifica al cartón para el comprador, pero nunca lo direcciona — ninguna ruta, query
+    /// string ni request DTO lo acepta, y el identificador direccionable sigue siendo
+    /// <see cref="Id"/> (D-06 del PRD, RNF-07).
+    /// </summary>
+    public int NumeroCorrelativo { get; private init; }
+
     private Carton()
     {
     }
@@ -32,7 +40,10 @@ public sealed class Carton
     /// <paramref name="numeros"/> no tiene exactamente 10 elementos, contiene duplicados, o algún
     /// número está fuera del rango 1-90.
     /// </exception>
-    public static Carton Crear(Guid bingoId, IReadOnlyList<int> numeros)
+    /// <exception cref="NumeroCorrelativoInvalidoException">
+    /// <paramref name="numeroCorrelativo"/> es menor a 1.
+    /// </exception>
+    public static Carton Crear(Guid bingoId, IReadOnlyList<int> numeros, int numeroCorrelativo)
     {
         var sinDuplicados = new HashSet<int>(numeros).Count == numeros.Count;
         var todosEnRango = numeros.All(n => n is >= 1 and <= 90);
@@ -43,11 +54,18 @@ public sealed class Carton
                 "Un cartón debe tener exactamente 10 números distintos entre 1 y 90.");
         }
 
+        if (numeroCorrelativo < 1)
+        {
+            throw new NumeroCorrelativoInvalidoException(
+                "El número correlativo de un cartón debe ser mayor o igual a 1.");
+        }
+
         return new Carton
         {
             Id = Guid.NewGuid(),
             BingoId = bingoId,
             Numeros = numeros.OrderBy(n => n).ToList(),
+            NumeroCorrelativo = numeroCorrelativo,
         };
     }
 }

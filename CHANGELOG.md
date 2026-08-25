@@ -8,6 +8,25 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-009d**: "Mis cartones" del comprador y actualización de datos de cuenta —
+  `Carton.NumeroCorrelativo` (1..N por bingo, asignado al crearlo) se propaga a las cinco
+  proyecciones existentes de cartón (descubrimiento, carrito, confirmación de compra, mail, PDF) para
+  que el comprador vea el mismo número en todo su recorrido, sin que ninguna ruta ni request lo acepte
+  jamás como entrada. `GET /api/compradores/mis-cartones` lista, paginado, todos los cartones del
+  comprador autenticado en cualquier estado de compra (incluidas las canceladas), y
+  `GET /api/compradores/mis-cartones/{cartonId:guid}/pdf` descarga el PDF de cualquiera on-demand,
+  generado en memoria y nunca persistido — el primer endpoint binario del proyecto. Pertenencia
+  resuelta con el mismo patrón anti-enumeración de FEAT-009c: cartón ajeno e inexistente devuelven el
+  mismo 404, byte a byte. `PUT /api/compradores/mi-cuenta` actualiza apellido, nombre, CUIT y mail
+  (los cuatro juntos, actualización total o ninguna) exigiendo la contraseña actual como prueba de
+  identidad — verificada **primero**, antes de CUIT y antes de colisiones de mail/CUIT, para que un
+  atacante con una sesión robada no pueda usar esas respuestas como oráculo de enumeración. Bloqueada
+  si alguna compra vigente del comprador tiene su sorteo dentro de los próximos 60 minutos (las
+  compras canceladas y los sorteos ya pasados no cuentan). Tras una actualización exitosa se reemite
+  la cookie de sesión con el mail fresco — cosmético: el proyecto usa JWT Bearer stateless sin
+  `SecurityStampValidator`, así que no revoca sesiones abiertas en otros dispositivos. Un log de
+  auditoría registra qué campos cambiaron, nunca sus valores. Backend-only.
+
 - **FEAT-009c**: Confirmación y cancelación manual de pago — `PATCH /api/compras/{id}/confirmar-pago`
   y `PATCH /api/compras/{id}/cancelar` (autenticados, `[Authorize(Roles = "Organizador")]`) le
   permiten al organizador conciliar manualmente el pago de sus propias compras, y
