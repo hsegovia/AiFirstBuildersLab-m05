@@ -55,4 +55,19 @@ public interface ICompraRepository
     /// una excepción sobre una colección vacía).
     /// </summary>
     Task<decimal> ObtenerMontoTotalAsync(Guid compraId);
+
+    /// <summary>
+    /// Devuelve la página <paramref name="page"/> (1-based) de tamaño <paramref name="pageSize"/> de
+    /// los cartones adquiridos por <paramref name="compradorId"/> — spec FEAT-009d, Block 3 (FR-11).
+    /// Join de cuatro tablas (<c>CompraCartones</c> → <c>Compras</c> → <c>Cartones</c> → <c>Bingos</c>
+    /// → <c>AspNetUsers</c>), filtrado por <c>Compras.CompradorId</c>. Incluye cartones de compras en
+    /// CUALQUIER estado, incluidas las canceladas (FR-02/AC-02/A-01) — a diferencia de las consultas
+    /// de disponibilidad de venta (FEAT-009c), acá el criterio es el opuesto: el comprador necesita
+    /// ver qué pasó con su compra. Orden: <c>Compra.FechaCreacionUtc</c> descendente, desempatado por
+    /// <c>Carton.NumeroCorrelativo</c> ascendente (esa columna no es única — dos cartones de la misma
+    /// compra comparten fecha — así que sin desempate la paginación no sería estable entre páginas).
+    /// <paramref name="page"/>/<paramref name="pageSize"/> se asumen ya validados/clampeados por el
+    /// llamador (Application, <c>MisCartonesService</c>) — este puerto no revalida.
+    /// </summary>
+    Task<CartonesAdquiridosPaginados> ListarCartonesDelCompradorAsync(Guid compradorId, int page, int pageSize);
 }

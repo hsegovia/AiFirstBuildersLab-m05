@@ -1,4 +1,5 @@
 using BingoCart.Application.Compras;
+using BingoCart.Application.Compras.Dtos;
 using BingoCart.Domain.Compras;
 using BingoCart.Domain.Compras.Exceptions;
 using BingoCart.Infrastructure.Data;
@@ -109,4 +110,67 @@ public sealed class CompraRepository : ICompraRepository
         await _context.CompraCartones
             .Where(cc => cc.CompraId == compraId)
             .SumAsync(cc => (decimal?)cc.PrecioUnitario) ?? 0m;
+
+    /// <summary>
+    /// Join de 4 tablas (spec FEAT-009d, Block 3): <c>CompraCartones</c> → <c>Compras</c> (por
+    /// <c>CompraId</c>) → <c>Cartones</c> (por <c>CartonId</c>) → <c>Bingos</c> → <c>AspNetUsers</c>,
+    /// filtrado por <c>Compras.CompradorId</c> — mismo precedente de join LINQ tipado que
+    /// <c>BingoRepository.ObtenerParaConfirmarCompraAsync</c>, combinado con la paginación
+    /// (<c>CountAsync</c> + <c>Skip</c>/<c>Take</c> + <c>Select</c> proyectado) de
+    /// <c>DirectorioRepository.ListarActivosAsync</c>. Orden: <c>Compra.FechaCreacionUtc</c>
+    /// descendente, desempatado por <c>Carton.NumeroCorrelativo</c> ascendente (esa columna no es
+    /// única — dos cartones de la misma compra comparten fecha — así que sin desempate la
+    /// paginación no sería estable entre páginas).
+    /// </summary>
+    public async Task<CartonesAdquiridosPaginados> ListarCartonesDelCompradorAsync(Guid compradorId, int page, int pageSize)
+    {
+        var query = _context.CompraCartones
+            .Join(_context.Compras, cc => cc.CompraId, c => c.Id, (cc, c) => new { cc, c })
+            .Where(x => x.c.CompradorId == compradorId)
+            .Join(_context.Cartones, x => x.cc.CartonId, carton => carton.Id, (x, carton) => new { x.c, carton })
+            .Join(_context.Bingos, x => x.carton.BingoId, b => b.Id, (x, b) => new { x.c, x.carton, b })
+            .Join(_context.Users, x => x.b.OrganizadorId, u => u.Id, (x, u) => new { x.c, x.carton, x.b, u });
+
+        var total = await query.CountAsync();
+
+        // Proyección parcial: nunca materializa Carton/Bingo/ApplicationUser completos, mismo
+        // criterio que DirectorioRepository.ListarActivosAsync. `Estado` se lleva como el enum
+        // (mapeado por convención de EF Core) y se traduce a `string` DESPUÉS, en memoria, sobre la
+        // página ya acotada (máximo 50 filas) — mismo criterio que
+        // CompraOrganizadorService.ListarPropiasAsync: Enum.ToString() no traduce a SQL de forma
+        // portable, así que la conversión ocurre fuera de la query.
+        var pagina = await query
+            .OrderByDescending(x => x.c.FechaCreacionUtc)
+            .ThenBy(x => x.carton.NumeroCorrelativo)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(x => new
+            {
+                CartonId = x.carton.Id,
+                x.carton.NumeroCorrelativo,
+                x.carton.Numeros,
+                x.b.NombreEvento,
+                // `NombreOrganizacion` es nullable en el esquema (el comprador no lo completa), pero
+                // acá `u` siempre proviene de `Bingo.OrganizadorId` — un organizador, que sí lo
+                // completa siempre — el `!` es seguro, mismo criterio que
+                // ObtenerParaConfirmarCompraAsync.
+                NombreOrganizacion = x.u.NombreOrganizacion!,
+                x.c.Estado,
+                CompraId = x.c.Id,
+            })
+            .ToListAsync();
+
+        var items = pagina
+            .Select(x => new CartonAdquiridoResponse(
+                x.CartonId,
+                x.NumeroCorrelativo,
+                x.Numeros,
+                x.NombreEvento,
+                x.NombreOrganizacion,
+                x.Estado.ToString(),
+                x.CompraId))
+            .ToList();
+
+        return new CartonesAdquiridosPaginados(items, total);
+    }
 }
