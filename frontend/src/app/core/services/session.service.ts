@@ -41,6 +41,16 @@ export class SessionService {
   constructor(private readonly http: HttpClient) {}
 
   /**
+   * Valor síncrono actual del rol resuelto, sin esperar una nueva emisión del `Observable`.
+   * Existe para los guards de rol (spec FEAT-010a, Block 4): dado que `APP_INITIALIZER` garantiza
+   * que `resolverAsync()` ya corrió antes de que el router evalúe cualquier guard, el guard puede
+   * leer el estado ya resuelto de forma síncrona en vez de suscribirse a una nueva emisión.
+   */
+  get rolActual(): Rol | null {
+    return this.sesionSubject.getValue()?.rol ?? null;
+  }
+
+  /**
    * Llama a `GET /api/auth/whoami` y actualiza el estado interno. Nunca rechaza: un 401 es un
    * estado legítimo ("sesión anónima"), y un 429/5xx/error de red no pisa una sesión ya resuelta
    * — se ignora, dejando el último estado conocido, para no desloguear visualmente a alguien con

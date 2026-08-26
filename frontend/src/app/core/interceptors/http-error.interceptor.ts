@@ -10,6 +10,8 @@ import { Router } from '@angular/router';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
+import { loginPathPorRuta } from '../auth-navigation.util';
+
 /**
  * Llamadas del propio flujo de autenticación excluidas de la redirección automática en 401
  * (mitigación R-03 del threat model FEAT-010a: evita el loop de redirección — un 401 en
@@ -22,17 +24,6 @@ const URLS_EXCLUIDAS_DE_REDIRECCION_401 = [
   '/api/organizadores/login',
   '/api/compradores/login',
 ];
-
-/** Pantalla de login de organizador — misma ruta que ya usa `AuthRoutingModule` hoy. */
-const LOGIN_ORGANIZADOR_PATH = '/auth/login';
-
-/**
- * Pantalla de login de comprador. Al momento de este bloque (FEAT-010a, Block 3) todavía no
- * existe un módulo de rutas de comprador — lo agregan los sub-tickets FEAT-010c/d. Se asume esta
- * ruta como destino razonable, siguiendo la misma convención de `AuthRoutingModule`
- * (`/auth/login`); si esos sub-tickets definen una ruta distinta, este valor deberá actualizarse.
- */
-const LOGIN_COMPRADOR_PATH = '/auth/login-comprador';
 
 const MENSAJE_403 = 'No tenés permiso para esta acción.';
 
@@ -82,25 +73,8 @@ export class HttpErrorInterceptor implements HttpInterceptor {
     }
 
     const rutaActual = this.router.url;
-    const loginPath =
-      this.rolEsperadoPorRuta(rutaActual) === 'Comprador'
-        ? LOGIN_COMPRADOR_PATH
-        : LOGIN_ORGANIZADOR_PATH;
+    const loginPath = loginPathPorRuta(rutaActual);
 
     void this.router.navigate([loginPath], { queryParams: { returnUrl: rutaActual } });
-  }
-
-  /**
-   * Deriva el rol esperado del prefijo de la ruta ACTUAL del router (no de la URL de la request
-   * que falló): `/organizador/*` → Organizador; `/comprador/*` o `/checkout/*` → Comprador. Si el
-   * prefijo no es reconocible, se usa Organizador como default razonable (decisión documentada en
-   * el spec, Block 3) — es el rol del único flujo de auth que existe hoy en el proyecto.
-   */
-  private rolEsperadoPorRuta(rutaActual: string): 'Organizador' | 'Comprador' {
-    if (rutaActual.startsWith('/comprador') || rutaActual.startsWith('/checkout')) {
-      return 'Comprador';
-    }
-
-    return 'Organizador';
   }
 }
