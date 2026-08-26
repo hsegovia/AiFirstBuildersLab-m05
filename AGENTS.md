@@ -51,7 +51,7 @@ files and **propose the text for you to paste here**. You always confirm it.
 | Cache | Redis (reserva de carrito) |
 | Auth | ASP.NET Core Identity + JWT |
 | Email / PDF | MailKit (SMTP) + QuestPDF (cartones) |
-| Test runner | Playwright para .NET (C#/xUnit) — E2E |
+| Test runner | Playwright para .NET (C#/xUnit) — E2E · Karma/Jasmine (`ng test`) — unit tests de FrontEnd |
 | Linter / formatter | ESLint + Prettier (FrontEnd) · dotnet-format (BackEnd) |
 | Package manager | npm (FrontEnd) · NuGet (BackEnd) |
 

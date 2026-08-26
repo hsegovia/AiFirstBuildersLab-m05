@@ -1,28 +1,66 @@
-<mat-toolbar color="primary" class="shadow-md">
+<mat-toolbar color="primary" class="shadow-md flex items-center justify-between">
   <span class="text-lg font-semibold">{{ title }}</span>
-</mat-toolbar>
 
-<main class="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 p-8">
-  <mat-card class="max-w-md p-6 shadow-lg">
-    <mat-card-header>
-      <mat-card-title>{{ title }}</mat-card-title>
-    </mat-card-header>
-    <mat-card-content>
-      <p class="text-sm text-slate-600">
-        Infraestructura base del frontend lista: Angular Material (MD3) y Tailwind CSS aplicando
-        estilos sobre esta página placeholder.
-      </p>
-      <a
-        mat-raised-button
-        color="primary"
-        class="mt-4"
-        routerLink="/auth/registro"
-        data-testid="link-registro"
-      >
+  <!--
+    Nav condicionada por rol vía `async` pipe (spec FEAT-010a, Block 5). `rol` es `null` para una
+    sesión anónima (incluye el estado inicial antes de que `APP_INITIALIZER` resuelva `whoami`),
+    y en ese caso se muestra la rama `navAnonima`.
+  -->
+  <nav
+    *ngIf="sessionService.rol$ | async as rol; else navAnonima"
+    class="flex items-center gap-4 text-sm"
+  >
+    <!--
+      Los links a "mis bingos"/"mis cartones" quedan deshabilitados (sin routerLink) porque esas
+      rutas todavía no existen: las crean los sub-tickets FEAT-010b/c (organizador) y
+      FEAT-010d/e (comprador). Evita romper la navegación con un routerLink a una ruta inexistente.
+    -->
+    <span
+      *ngIf="rol === 'Organizador'"
+      class="cursor-not-allowed opacity-60"
+      data-testid="nav-mis-bingos"
+      title="Disponible cuando FEAT-010b/c agreguen la ruta de organizador"
+    >
+      Mis bingos
+    </span>
+    <span
+      *ngIf="rol === 'Comprador'"
+      class="cursor-not-allowed opacity-60"
+      data-testid="nav-mis-cartones"
+      title="Disponible cuando FEAT-010d/e agreguen la ruta de comprador"
+    >
+      Mis cartones
+    </span>
+  </nav>
+
+  <ng-template #navAnonima>
+    <nav class="flex items-center gap-4 text-sm">
+      <a routerLink="/auth/login" data-testid="nav-login-organizador">Ingresar (organizador)</a>
+      <a routerLink="/auth/registro" data-testid="nav-registro-organizador">
         Registrar organización
       </a>
-    </mat-card-content>
-  </mat-card>
+      <!--
+        El login/registro de comprador todavía no existe en app-routing.module.ts: lo agrega
+        FEAT-010d. Se muestra deshabilitado en vez de un routerLink a una ruta inexistente.
+      -->
+      <span
+        class="cursor-not-allowed opacity-60"
+        data-testid="nav-login-comprador"
+        title="Disponible cuando FEAT-010d agregue la ruta de comprador"
+      >
+        Ingresar (comprador)
+      </span>
+      <span
+        class="cursor-not-allowed opacity-60"
+        data-testid="nav-registro-comprador"
+        title="Disponible cuando FEAT-010d agregue la ruta de comprador"
+      >
+        Registrarme (comprador)
+      </span>
+    </nav>
+  </ng-template>
+</mat-toolbar>
 
+<main class="min-h-screen bg-slate-50">
   <router-outlet></router-outlet>
 </main>

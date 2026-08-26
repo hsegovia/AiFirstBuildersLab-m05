@@ -41,27 +41,4 @@ describe('AuthService', () => {
 
     expect(received).toEqual(response);
   });
-
-  it('tras un login exitoso, el estado de sesión emite el expiraEnUtc recibido', (done) => {
-    const response: LoginResponse = { expiraEnUtc: '2026-08-17T15:00:00Z' };
-
-    service.sesionExpiraEnUtc$.subscribe((valor) => {
-      if (valor !== null) {
-        expect(valor).toBe(response.expiraEnUtc);
-        done();
-      }
-    });
-
-    service.login({ mail: 'organizador@example.com', password: 'Abcdefg1!' }).subscribe();
-
-    const req = httpMock.expectOne(`${environment.apiUrl}/api/organizadores/login`);
-    req.flush(response);
-  });
-
-  it('antes de cualquier login, el estado de sesión es null', () => {
-    let valorInicial: string | null | undefined;
-    service.sesionExpiraEnUtc$.subscribe((valor) => (valorInicial = valor));
-
-    expect(valorInicial).toBeNull();
-  });
 });

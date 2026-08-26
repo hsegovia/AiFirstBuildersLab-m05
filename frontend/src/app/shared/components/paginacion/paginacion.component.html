@@ -1,0 +1,25 @@
+<nav class="flex items-center justify-center gap-4" aria-label="Paginación">
+  <button
+    mat-button
+    type="button"
+    data-testid="paginacion-anterior"
+    [disabled]="esPrimeraPagina"
+    (click)="irAPaginaAnterior()"
+  >
+    Anterior
+  </button>
+
+  <span class="text-sm text-slate-600" data-testid="paginacion-info">
+    Página {{ page }} de {{ totalPaginas }}
+  </span>
+
+  <button
+    mat-button
+    type="button"
+    data-testid="paginacion-siguiente"
+    [disabled]="esUltimaPagina"
+    (click)="irAPaginaSiguiente()"
+  >
+    Siguiente
+  </button>
+</nav>
