@@ -8,6 +8,27 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Added
 
+- **FEAT-010a**: Infraestructura transversal de sesión y resolución de rol (whoami) — primera
+  incorporación de Angular al proyecto (Blocks 1-6). `GET /api/auth/whoami` devuelve `{rol, mail}`
+  leyendo los claims del JWT ya verificado por el pipeline de ASP.NET Core Identity, sin consulta a
+  la base de datos y con rate limiting propio (`"auth-whoami"`, 60 req/min por `NameIdentifier`).
+  `SessionService` es la única fuente de verdad de la sesión en el frontend: un `BehaviorSubject`
+  en memoria (jamás `localStorage`/`sessionStorage`) que expone `sesion$`, `rol$`, `mail$` y el
+  getter síncrono `rolActual` (ADR-005). Un `APP_INITIALIZER` (ADR-004) resuelve `whoami` antes de
+  que Angular termine el bootstrap — sin parpadeo de layout en el primer render con cookie vigente;
+  un error de red transitorio nunca cuelga la app. `HttpErrorInterceptor` centraliza el manejo de
+  401 (redirige a login con `returnUrl`), 403 y 429 (placeholder `console.error` — ADR-006) con una
+  lista de exclusión para las tres rutas de auth propias. `organizadorGuard` y `compradorGuard`
+  (`CanActivateFn`) leen `SessionService.rolActual` sincrónicamente, redirigen con `returnUrl` y son
+  explícitamente UX-only (la autorización real sigue siendo `[Authorize(Roles=...)]` en el backend).
+  `AppComponent` se convierte en un shell puro: toolbar con nav condicionada por `rol$ | async`
+  (Organizador → "Mis bingos", Comprador → "Mis cartones", anónimo → links de login/registro sin
+  routerLink a rutas inexistentes). `HomeComponent` absorbe la tarjeta de registro. `SharedModule`
+  declara y exporta `PaginacionComponent`, puramente presentacional (@Input total/page/pageSize,
+  @Output pageChange). 3 tests E2E con Playwright .NET verifican el comportamiento end-to-end
+  contra navegador y cookie `httpOnly` reales (refresh restaura sesión, ruta protegida sin cookie
+  redirige a login con `returnUrl`, guard de rol corta sin llamar a la API del rol equivocado).
+
 - **FEAT-009d**: "Mis cartones" del comprador y actualización de datos de cuenta —
   `Carton.NumeroCorrelativo` (1..N por bingo, asignado al crearlo) se propaga a las cinco
   proyecciones existentes de cartón (descubrimiento, carrito, confirmación de compra, mail, PDF) para
