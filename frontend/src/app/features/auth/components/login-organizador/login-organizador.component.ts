@@ -5,6 +5,7 @@ import { Router } from '@angular/router';
 
 import { LoginRequest } from '../../models/login-request.model';
 import { AuthService } from '../../services/auth.service';
+import { SessionService } from '../../../../core/services/session.service';
 
 /** Cuerpo de un error 401 (`ExceptionHandlingMiddleware`) devuelto por el endpoint de login (Block 2). */
 interface ErrorDeLogin {
@@ -18,6 +19,11 @@ interface ErrorDeLogin {
  * inválidas O cuenta bloqueada, indistinguibles a propósito — Block 2) se muestra como un único
  * mensaje genérico, sin distinguir causa. Los errores de red/5xx ya los maneja el interceptor HTTP
  * global (`http-error.interceptor.ts`), sin lógica adicional acá.
+ *
+ * Tras un login exitoso llama a `SessionService.resolverAsync()` (spec FEAT-010a, Block 2) ANTES
+ * de navegar: `router.navigateByUrl` es una navegación SPA sin recarga de página, así que sin este
+ * llamado el rol quedaría desactualizado en el layout hasta el próximo refresh (gap detectado por
+ * el impact scan de PLAN).
  */
 @Component({
   selector: 'app-login-organizador',
@@ -33,6 +39,7 @@ export class LoginOrganizadorComponent {
   constructor(
     private readonly formBuilder: FormBuilder,
     private readonly authService: AuthService,
+    private readonly sessionService: SessionService,
     private readonly router: Router,
   ) {
     this.form = this.formBuilder.group({
@@ -55,7 +62,7 @@ export class LoginOrganizadorComponent {
     this.authService.login(request).subscribe({
       next: () => {
         this.enviando = false;
-        this.router.navigateByUrl('/');
+        void this.sessionService.resolverAsync().then(() => this.router.navigateByUrl('/'));
       },
       error: (error: HttpErrorResponse) => {
         this.enviando = false;
