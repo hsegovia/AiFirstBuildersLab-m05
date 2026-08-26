@@ -47,14 +47,15 @@ export class HttpErrorInterceptor implements HttpInterceptor {
         const isUnhandledServerOrNetworkError = error.status === 0 || error.status >= 500;
 
         if (isUnhandledServerOrNetworkError) {
-          // Placeholder mínimo hasta que el proyecto defina un servicio de logging centralizado
-          // (fuera de alcance de este bloque).
+          // Placeholder — ver ADR-006: sin servicio de notificaciones centralizado todavía.
           console.error('Error HTTP no manejado:', error.message);
         } else if (error.status === 401) {
           this.manejarNoAutenticado(req);
         } else if (error.status === 403) {
+          // Placeholder — ver ADR-006: reemplazar por notificationService.warn() cuando exista.
           console.error('Acceso denegado:', MENSAJE_403);
         } else if (error.status === 429) {
+          // Placeholder — ver ADR-006: reemplazar por notificationService.warn() cuando exista.
           console.error('Límite de solicitudes excedido:', MENSAJE_429);
         }
 
